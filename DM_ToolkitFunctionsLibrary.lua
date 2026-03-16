@@ -1,4 +1,4 @@
----@diagnostic disable: undefined-global
+---@diagnostic disable: undefined-global, unused-local, lowercase-global
 
 -- Common UI colors in 0xRRGGBBAA format (last byte = opacity, FF = opaque)
 Colors = {
@@ -31,6 +31,34 @@ Colors = {
     warning      = 0xFF8800FF,
     error        = 0xFF3333FF,
     info         = 0x4488CCFF,
+
+    -- Semi-transparent whites (overlays, borders, splitters)
+    white_dim    = 0xFFFFFF0D,   -- ~5%
+    white_faint  = 0xFFFFFF1A,   -- ~10%
+    white_ghost  = 0xFFFFFF33,   -- ~20%
+    white_mid    = 0xFFFFFF88,   -- ~53%
+    white_soft   = 0xFFFFFF99,   -- ~60%
+    white_bright = 0xFFFFFFCC,   -- ~80%
+
+    -- Semi-transparent blacks (dark bars, overlays)
+    black_glass  = 0x00000066,   -- ~40%
+    black_smoke  = 0x000000BB,   -- ~73%
+
+    -- Near-black image tints (for darkening image overlays)
+    dark_tint     = 0x22222244,
+    dark_tint_sub = 0x11111133,
+
+    -- Widget interaction colours
+    grey_hover   = 0x777777FF,
+    grey_press   = 0x444444FF,
+    red_hover    = 0xCC3333FF,
+    red_press    = 0x993333FF,
+    red_light    = 0xFF4444FF,   -- softer error / warning text
+
+    -- Teal button family (matches Ambiance Creator's primary button colour)
+    teal_btn       = 0x15856DFF,   -- base
+    teal_btn_hover = 0x2E9E86FF,   -- base + 25 per channel
+    teal_btn_press = 0x006C54FF,   -- base − 25 per channel
 }
 
 -- reapack.ini remote format: remoteN=Name|URL|enabled|autoinstall

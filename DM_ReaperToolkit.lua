@@ -1,29 +1,107 @@
----@diagnostic disable: undefined-global
+---@diagnostic disable: undefined-global, need-check-nil, undefined-field
+
+-- ─── Module Imports ───
 
 local _dir = debug.getinfo(1, 'S').source:match("^@(.*[/\\])")
 dofile(_dir .. "DM_ToolkitFunctionsLibrary.lua")
 
-local packages  = dofile(_dir .. "DM_Packages.lua")
-local Fetch     = dofile(_dir .. "DM_AsyncFetch.lua")
-local MD        = dofile(_dir .. "DM_Markdown.lua")
-local PkgStatus = dofile(_dir .. "DM_PackageStatus.lua")
+local packages        = dofile(_dir .. "DM_Packages.lua")
+local Fetch           = dofile(_dir .. "DM_AsyncFetch.lua")
+local MD              = dofile(_dir .. "DM_Markdown.lua")
+local PkgStatus       = dofile(_dir .. "DM_PackageStatus.lua")
+local DirectInstaller = dofile(_dir .. "DM_DirectInstaller.lua")
+local UI              = dofile(_dir .. "DM_UIHelperFunctions.lua")
 
-local CARD_W  = 500
-local IMG_H   = 180
-local COLS    = 1
-local SPACING  = 15
-local VSPACING = 15
+-- ─── Constants ───
+
+-- Layout
+local COLS        = 1
+local SPACING     = 15
+local VSPACING    = 8
 local PAD_X       = 20
 local PAD_Y       = 10
 local SCROLLBAR_W = 14   -- added so the scrollbar in ##card_scroll doesn't eat into right PAD_X
 local SPLITTER_W  = 6    -- width of the draggable divider between panels
 local LOGO_W      = 160  -- rendered width of the bottom logo in pixels; change to resize it
 local LOGO_PAD_Y  = 12   -- vertical space above and below the logo
-local INSPECTOR_PAD_X = 16   -- horizontal WindowPadding inside the right inspector panel
-local INSPECTOR_PAD_Y = 12   -- vertical WindowPadding inside the right inspector panel
-local README_PAD_X    = 10   -- extra horizontal indent for the README body
-local README_PAD_Y    = 8    -- extra vertical gap above the README body
-local left_w      = PAD_X * 2 + CARD_W * COLS + SPACING * (COLS - 1) + SCROLLBAR_W
+local BTN_ROUNDING     = 4   -- corner rounding for normal buttons
+local INSPECTOR_PAD_X  = 16  -- horizontal WindowPadding inside the right inspector panel
+local INSPECTOR_PAD_Y  = 12  -- vertical WindowPadding inside the right inspector panel
+local README_PAD_X     = 10  -- extra horizontal indent for the README body
+local README_PAD_Y     = 8   -- extra vertical gap above the README body
+
+-- Card image
+local TEXT_PAD  = 20
+local TEXT_SIZE = 30
+local BAR_H     = TEXT_SIZE + TEXT_PAD * 2 + 23  -- extra 23 px to accommodate version/update text
+
+-- Card overlay
+local CARD_ROUNDING    = 6
+local CARD_BORDER_ACTIVE = 2
+local CARD_BORDER_HOVER  = 1.5
+local CARD_BORDER_IDLE   = 1
+
+-- Badge (top-right dot on installed/imported cards)
+local BADGE_SIZE     = 11  -- square width/height
+local BADGE_MARGIN_X = 3   -- gap from card right edge
+local BADGE_MARGIN_Y = 3   -- gap from card top edge
+local BADGE_ROUNDING = 3
+-- Update-available arrow (drawn left of the badge)
+local ARROW_OFFSET_X    = 23  -- distance from card right edge to arrow centre
+local ARROW_HALF_W      = 4   -- half-width of triangle base
+local ARROW_H           = 7   -- triangle height
+local ARROW_STEM_HALF_W = 1   -- half-width of the vertical stem
+local ARROW_STEM_Y      = 8   -- y offset where the stem begins (from card top)
+
+-- Window
+local WIN_INIT_W      = 1200
+local WIN_INIT_H      = 700
+local WIN_ROUNDING    = 10
+local WIN_FOCUS_COLOR = 0xFFFFFF30  -- thin border when window is focused
+
+-- Title bar
+local TITLEBAR_H          = 30
+local TITLEBAR_FONT_SZ    = 14
+local TITLEBAR_TITLE_X    = 12   -- left x offset of the window title text
+local TITLEBAR_TITLE_FSZ  = 16   -- font size of the window title
+local TITLEBAR_BTN_PAD_X  = 10
+local TITLEBAR_BTN_PAD_Y  = 5
+local TITLEBAR_BTN_GAP    = 6
+local TITLEBAR_DRAG_MIN_W = 120  -- minimum width of the invisible drag area
+local CLOSE_BTN_SZ        = 22   -- close icon display size (px)
+local CLOSE_BTN_LINE_W    = 1.5  -- thickness of the X lines
+
+-- Icon buttons
+local ICON_SIZE        = 30  -- display size (px) for icon buttons
+local ICON_TINT_NORMAL = 0xFFFFFFFF
+local ICON_TINT_HOVER  = 0xCCCCCCFF
+local ICON_TINT_ACTIVE = 0xAAAAAAAA
+
+-- Detail panel
+local DETAIL_TITLE_FONT_SZ = 24
+local DETAIL_BTN_GAP       = 6
+local DETAIL_BTN_PAD_X     = 10
+local DETAIL_BTN_PAD_Y     = 5
+local DETAIL_BTN_FONT_SZ   = 17
+
+-- Detail tabs
+local TAB_FRAME_PAD_X = 16
+local TAB_FRAME_PAD_Y = 8
+local TAB_FONT_SZ     = 16
+
+-- YouTube thumbnail
+local YT_THUMB_MAX_W    = 480
+local YT_CAPTION_FONT_SZ = 12
+
+-- Licence gate popup
+local LICENCE_FONT_SZ   = 14
+local LICENCE_INPUT_W   = 300
+local LICENCE_INPUT_MAX = 256
+local LICENCE_BTN_GAP   = 10
+local LICENCE_BTN_PAD_X = 20
+local LICENCE_BTN_PAD_Y = 8
+
+-- ─── State ───
 
 local ctx      = reaper.ImGui_CreateContext("DM ReaperToolkit")
 local font_big = reaper.ImGui_CreateFont("sans-serif", 28)
@@ -58,12 +136,23 @@ do
         end
     end
 end
-local LOGO_H = _logo and math.floor(LOGO_W * _logo.h / _logo.w) or 0
-local _open  = true   -- controlled by our custom close button
 
-local selected    = nil
-local first_frame = true
+-- Dynamic layout state (recalculated each frame)
+local card_w = PAD_X * 2 + 500 * COLS + SPACING * (COLS - 1) + SCROLLBAR_W  -- initial estimate
+local logo_h = 0
+local left_w = PAD_X * 2 + 500 * COLS + SPACING * (COLS - 1) + SCROLLBAR_W
+
+local selected              = nil
+local first_frame           = true
+local _open                 = true   -- controlled by our custom close button
 local _drag_next_x, _drag_next_y = nil, nil   -- pending window reposition from drag
+local _prev_installer_state = "idle"  -- used to detect DirectInstaller "done" transition
+
+local _licence_accepted = false
+local _licence_key      = ""
+local _gate_needs_open  = true
+
+-- ─── Thumbnail Cache ───
 
 local _thumb_cache = {}  -- pkg.name -> {img, w, h} or false
 
@@ -104,80 +193,323 @@ local function GetThumbnail(pkg)
     return _thumb_cache[pkg.name]
 end
 
-local function DrawPackageCard(pkg)
-    local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
-    local x, y     = reaper.ImGui_GetCursorScreenPos(ctx)
+-- ─── Icon Cache ───
+-- LoadIcon accepts either a toolbar icon name (no path separators → looked up in
+-- the REAPER toolbar_icons/200 folder) or a full file path for custom images.
 
-    local thumb = GetThumbnail(pkg)
+local _icon_cache = {}
+local _icon_dir   = reaper.GetResourcePath():gsub("/", "\\") .. "\\Data\\toolbar_icons\\200\\"
+
+-- Custom icon paths
+local _ico_web = _dir .. "Resources\\Icons\\android-icon-72x72.png"
+local _ico_gh  = _dir .. "Resources\\Icons\\GithubIcon.png"
+local _ico_run = reaper.GetResourcePath():gsub("/", "\\") .. "\\Data\\toolbar_icons\\toolbar_misc_right_forward_next.png"
+
+local function LoadIcon(path)
+    if not path:find("[/\\]") then
+        path = _icon_dir .. path .. ".png"
+    end
+    if _icon_cache[path] ~= nil then return _icon_cache[path] or nil end
+    local img = reaper.ImGui_CreateImage(path)
+    if not img then _icon_cache[path] = false; return nil end
+    reaper.ImGui_Attach(ctx, img)
+    _icon_cache[path] = img
+    return img
+end
+
+-- Renders a clickable icon button that opens a URL on click.
+local function DrawIconButton(id, path, tooltip, url)
+    local ico = LoadIcon(path)
+    if not ico then return end
+    local bx, by  = reaper.ImGui_GetCursorScreenPos(ctx)
+    local clicked = reaper.ImGui_InvisibleButton(ctx, id, ICON_SIZE, ICON_SIZE)
+    local is_hov  = reaper.ImGui_IsItemHovered(ctx)
+    local is_act  = reaper.ImGui_IsItemActive(ctx)
+    local tint    = is_act and ICON_TINT_ACTIVE or (is_hov and ICON_TINT_HOVER or ICON_TINT_NORMAL)
+    local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
+    reaper.ImGui_DrawList_AddImage(draw_list, ico, bx, by, bx + ICON_SIZE, by + ICON_SIZE, 0, 0, 1, 1, tint)
+    if clicked then reaper.CF_ShellExecute(url) end
+    if is_hov  then reaper.ImGui_SetTooltip(ctx, tooltip) end
+end
+
+-- ─── Package Card ───
+
+local function DrawCardImage(draw_list, thumb, x, y)
     if thumb then
         -- Center-crop: compute UVs so the image fills the card without stretching
         local u0, v0, u1, v1 = 0, 0, 1, 1
         if thumb.w > 0 and thumb.h > 0 then
-            local card_ar = CARD_W / IMG_H
+            local card_ar = card_w / BAR_H
             local img_ar  = thumb.w / thumb.h
             if img_ar > card_ar then
-                -- Image wider than card: crop left/right
                 local u = card_ar / img_ar
                 u0, u1 = (1 - u) / 2, (1 + u) / 2
             else
-                -- Image taller than card: crop top/bottom
                 local v = img_ar / card_ar
                 v0, v1 = (1 - v) / 2, (1 + v) / 2
             end
         end
         reaper.ImGui_DrawList_AddImageRounded(draw_list, thumb.img,
-            x, y, x + CARD_W, y + IMG_H, u0, v0, u1, v1, 0xFFFFFFFF, 6)
+            x, y, x + card_w, y + BAR_H, u0, v0, u1, v1, Colors.white, CARD_ROUNDING)
     else
-        reaper.ImGui_DrawList_AddRectFilled(draw_list, x, y, x + CARD_W, y + IMG_H, 0x4488CCFF, 6)
+        reaper.ImGui_DrawList_AddRectFilled(draw_list, x, y, x + card_w, y + BAR_H, Colors.blue, CARD_ROUNDING)
     end
     -- Dark bar at top so white title text is always legible
-    local TEXT_PAD = 10
-    local TEXT_SIZE = 30
-    local BAR_H = TEXT_SIZE + TEXT_PAD * 2 + 23  -- extra 23 px to accommodate version/update text below the title
     reaper.ImGui_DrawList_AddRectFilled(draw_list,
-        x, y, x + CARD_W, y + BAR_H, 0x000000BB, 0)
+        x, y, x + card_w, y + BAR_H, Colors.black_smoke, 0)
+end
 
-    local status = PkgStatus.GetPackageStatus(pkg)
+local function DrawCardBadge(draw_list, pkg, status, x, y)
     if status == "installed" then
-        reaper.ImGui_DrawList_AddRectFilled(draw_list, x + CARD_W - 14, y + 3, x + CARD_W - 3, y + 14, 0x44FF44FF, 3)
+        reaper.ImGui_DrawList_AddRectFilled(draw_list,
+            x + card_w - BADGE_SIZE - BADGE_MARGIN_X, y + BADGE_MARGIN_Y,
+            x + card_w - BADGE_MARGIN_X,              y + BADGE_MARGIN_Y + BADGE_SIZE,
+            Colors.green, BADGE_ROUNDING)
         if PkgStatus.IsUpdateAvailable(pkg) then
-            local ax = x + CARD_W - 23  -- centre x of the arrow
+            local ax = x + card_w - ARROW_OFFSET_X
             reaper.ImGui_DrawList_AddTriangleFilled(draw_list,
-                ax,     y + 2,
-                ax - 4, y + 9,
-                ax + 4, y + 9,
-                0xFFAA00FF)
+                ax,                y + BADGE_MARGIN_Y,
+                ax - ARROW_HALF_W, y + BADGE_MARGIN_Y + ARROW_H,
+                ax + ARROW_HALF_W, y + BADGE_MARGIN_Y + ARROW_H,
+                Colors.amber)
             reaper.ImGui_DrawList_AddRectFilled(draw_list,
-                ax - 1, y + 8, ax + 1, y + 14, 0xFFAA00FF, 0)
+                ax - ARROW_STEM_HALF_W, y + ARROW_STEM_Y,
+                ax + ARROW_STEM_HALF_W, y + BADGE_MARGIN_Y + BADGE_SIZE,
+                Colors.amber, 0)
         end
     elseif status == "imported" then
-        reaper.ImGui_DrawList_AddRectFilled(draw_list, x + CARD_W - 14, y + 3, x + CARD_W - 3, y + 14, 0xFF8800FF, 3)
+        reaper.ImGui_DrawList_AddRectFilled(draw_list,
+            x + card_w - BADGE_SIZE - BADGE_MARGIN_X, y + BADGE_MARGIN_Y,
+            x + card_w - BADGE_MARGIN_X,              y + BADGE_MARGIN_Y + BADGE_SIZE,
+            Colors.orange, BADGE_ROUNDING)
     end
+end
+
+local function DrawCardOverlay(draw_list, x, y, hov, act)
+    if act then
+        reaper.ImGui_DrawList_AddRectFilled(draw_list, x, y, x + card_w, y + BAR_H, Colors.white_faint, CARD_ROUNDING)
+        reaper.ImGui_DrawList_AddRect(draw_list,       x, y, x + card_w, y + BAR_H, Colors.white_bright, CARD_ROUNDING, nil, CARD_BORDER_ACTIVE)
+    elseif hov then
+        reaper.ImGui_DrawList_AddRectFilled(draw_list, x, y, x + card_w, y + BAR_H, Colors.white_dim, CARD_ROUNDING)
+        reaper.ImGui_DrawList_AddRect(draw_list,       x, y, x + card_w, y + BAR_H, Colors.white_soft, CARD_ROUNDING, nil, CARD_BORDER_HOVER)
+        reaper.ImGui_SetMouseCursor(ctx, reaper.ImGui_MouseCursor_Hand())
+    else
+        reaper.ImGui_DrawList_AddRect(draw_list, x, y, x + card_w, y + BAR_H, Colors.white_ghost, CARD_ROUNDING, nil, CARD_BORDER_IDLE)
+    end
+end
+
+local function DrawPackageCard(pkg)
+    local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
+    local x, y     = reaper.ImGui_GetCursorScreenPos(ctx)
+    local thumb     = GetThumbnail(pkg)
+    local status    = PkgStatus.GetPackageStatus(pkg)
+
+    DrawCardImage(draw_list, thumb, x, y)
+    DrawCardBadge(draw_list, pkg, status, x, y)
 
     -- Title text overlaid on the dark bar
-
     reaper.ImGui_SetCursorScreenPos(ctx, x + TEXT_PAD, y + TEXT_PAD)
-    reaper.ImGui_PushFont(ctx, font_big, TEXT_SIZE)
-    reaper.ImGui_Text(ctx, pkg.name)
-    reaper.ImGui_PopFont(ctx)
+    UI.TextWithFont(ctx, pkg.name, font_big, TEXT_SIZE)
 
     -- Claim the full card area for layout and click detection
     reaper.ImGui_SetCursorScreenPos(ctx, x, y)
-    reaper.ImGui_Dummy(ctx, CARD_W, IMG_H)
+    reaper.ImGui_Dummy(ctx, card_w, BAR_H)
 
-    -- Hover / press overlay + outline (drawn on top because draw list is ordered)
-    local hovered = reaper.ImGui_IsItemHovered(ctx)
-    local active  = reaper.ImGui_IsItemActive(ctx)
-    if active then
-        reaper.ImGui_DrawList_AddRectFilled(draw_list, x, y, x + CARD_W, y + IMG_H, 0xFFFFFF1A, 6)
-        reaper.ImGui_DrawList_AddRect(draw_list, x, y, x + CARD_W, y + IMG_H, 0xFFFFFFCC, 6, nil, 2)
-    elseif hovered then
-        reaper.ImGui_DrawList_AddRectFilled(draw_list, x, y, x + CARD_W, y + IMG_H, 0xFFFFFF0D, 6)
-        reaper.ImGui_DrawList_AddRect(draw_list, x, y, x + CARD_W, y + IMG_H, 0xFFFFFF99, 6, nil, 1.5)
-        reaper.ImGui_SetMouseCursor(ctx, reaper.ImGui_MouseCursor_Hand())
-    else
-        reaper.ImGui_DrawList_AddRect(draw_list, x, y, x + CARD_W, y + IMG_H, 0xFFFFFF33, 6, nil, 1)
+    local hov = reaper.ImGui_IsItemHovered(ctx)
+    local act = reaper.ImGui_IsItemActive(ctx)
+    DrawCardOverlay(draw_list, x, y, hov, act)
+end
+
+-- ─── Detail Panel ───
+
+local function DrawDetailHeader(status)
+    reaper.ImGui_Spacing(ctx)
+    local avail_w, _ = reaper.ImGui_GetContentRegionAvail(ctx)
+    local inst_lbl   = (status == "installed")
+                     and (PkgStatus.IsUpdateAvailable(selected) and "Update" or "Reinstall")
+                     or "Install"
+
+    local has_web       = selected.Website_url ~= nil
+    local has_run       = (status == "installed")
+    local has_uninstall = (status == "installed")
+
+    -- Measure text button widths at the button font size
+    reaper.ImGui_PushFont(ctx, font_big, DETAIL_BTN_FONT_SZ)
+    local inst_tw = reaper.ImGui_CalcTextSize(ctx, inst_lbl)
+    local un_tw   = reaper.ImGui_CalcTextSize(ctx, "Uninstall")
+    reaper.ImGui_PopFont(ctx)
+    local inst_bw = inst_tw + DETAIL_BTN_PAD_X * 2
+    local un_bw   = un_tw   + DETAIL_BTN_PAD_X * 2
+
+    local total_w = (has_web and (ICON_SIZE + DETAIL_BTN_GAP) or 0)
+                  + ICON_SIZE + DETAIL_BTN_GAP   -- GitHub
+                  + (has_run  and (ICON_SIZE + DETAIL_BTN_GAP) or 0)
+                  + inst_bw
+                  + (has_uninstall and (DETAIL_BTN_GAP + un_bw) or 0)
+
+    UI.TextWithFont(ctx, selected.name, font_big, DETAIL_TITLE_FONT_SZ)
+
+    if status == "installed" then
+        reaper.ImGui_SameLine(ctx)
+        local disp_v  = PkgStatus.GetCachedVersion(selected)
+        local ver_str = disp_v and (" v" .. disp_v) or ""
+        UI.TextColored(ctx, " \xe2\x9c\x93 Installed" .. ver_str, Colors.success)
     end
+
+    reaper.ImGui_SameLine(ctx, avail_w - total_w, 0)
+
+    if has_web then
+        DrawIconButton("##web", _ico_web, "Website", selected.Website_url)
+        reaper.ImGui_SameLine(ctx, 0, DETAIL_BTN_GAP)
+    end
+
+    DrawIconButton("##gh", _ico_gh, "GitHub", selected.github_url)
+    reaper.ImGui_SameLine(ctx, 0, DETAIL_BTN_GAP)
+
+    if has_run then
+        local ico_run     = LoadIcon(_ico_run)
+        local script_path = PkgStatus.GetScriptPath(selected)
+        if ico_run and UI.ImageButton(ctx, "##run", ico_run, ICON_SIZE, ICON_SIZE,
+                { three_state = true }) then
+            local cmd_id = reaper.AddRemoveReaScript(true, 0, script_path, true)
+            if cmd_id ~= 0 then
+                reaper.Main_OnCommand(cmd_id, 0)
+            else
+                reaper.ShowConsoleMsg("[ReaperToolkit] Could not register: " .. script_path .. "\n")
+            end
+        end
+        if reaper.ImGui_IsItemHovered(ctx) then reaper.ImGui_SetTooltip(ctx, "Run") end
+        reaper.ImGui_SameLine(ctx, 0, DETAIL_BTN_GAP)
+    end
+
+    local inst_btn = {
+        color = Colors.grey, hovered = Colors.grey_hover, active = Colors.grey_press,
+        pad_x = DETAIL_BTN_PAD_X, pad_y = DETAIL_BTN_PAD_Y, rounding = BTN_ROUNDING,
+    }
+    local un_btn = {
+        color = Colors.grey, hovered = Colors.red_hover, active = Colors.red_press,
+        pad_x = DETAIL_BTN_PAD_X, pad_y = DETAIL_BTN_PAD_Y, rounding = BTN_ROUNDING,
+    }
+
+    reaper.ImGui_PushFont(ctx, font_big, DETAIL_BTN_FONT_SZ)
+    if UI.Button(ctx, inst_lbl .. "##inst", inst_btn) then
+        DirectInstaller.StartInstall(selected)
+    end
+
+    if has_uninstall then
+        reaper.ImGui_SameLine(ctx, 0, DETAIL_BTN_GAP)
+        if UI.Button(ctx, "Uninstall##un", un_btn) then
+            local idx_entry = Fetch.index_cache[selected.reapack_url]
+            if type(idx_entry) == "table" and not idx_entry.error and idx_entry.index_name then
+                DirectInstaller.StartUninstall(selected, idx_entry.index_name)
+                PkgStatus.InvalidateFileCache()
+                PkgStatus.InvalidateVersionCache()
+            end
+        end
+    end
+    reaper.ImGui_PopFont(ctx)
+end
+
+local function DrawInstallStatus(di_busy, pkg_result, status)
+    local pkg_is_active = DirectInstaller.active_url == selected.reapack_url
+    if di_busy and pkg_is_active then
+        reaper.ImGui_Spacing(ctx)
+        UI.TextColored(ctx, DirectInstaller.message, Colors.grey_mid)
+    elseif pkg_result and pkg_result.state == "done" then
+        reaper.ImGui_Spacing(ctx)
+        UI.TextColored(ctx, pkg_result.message, Colors.success)
+    elseif pkg_result and pkg_result.state == "error" then
+        reaper.ImGui_Spacing(ctx)
+        UI.TextColored(ctx, pkg_result.message, Colors.red_light)
+    elseif status == "installed" then
+        local online_v = PkgStatus.GetOnlineVersion(selected)
+        if online_v and PkgStatus.IsUpdateAvailable(selected) then
+            reaper.ImGui_Spacing(ctx)
+            UI.TextColored(ctx, "  \xe2\x86\x91 Update available: v" .. online_v, Colors.amber)
+        end
+    end
+end
+
+local function DrawYouTubeThumbnail()
+    if not selected.youtube_url then return end
+    local vid_id = selected.youtube_url:match("[?&]v=([%w_%-]+)")
+    if not vid_id then return end
+
+    local thumb_url = "https://img.youtube.com/vi/" .. vid_id .. "/mqdefault.jpg"
+    Fetch.QueueImageFetch(thumb_url)
+    local entry = Fetch.image_cache[thumb_url]
+    if entry and entry.status == "ready" and entry.img then
+        local tab_w, _ = reaper.ImGui_GetContentRegionAvail(ctx)
+        local disp_w   = math.min(tab_w, YT_THUMB_MAX_W)
+        local aspect   = (entry.w and entry.w > 0) and (entry.h / entry.w) or (9 / 16)
+        local disp_h   = math.floor(disp_w * aspect)
+
+        -- Capture screen pos before the button for the play-icon overlay
+        local bx, by = reaper.ImGui_GetCursorScreenPos(ctx)
+
+        if UI.ImageButton(ctx, "##yt_thumb", entry.img, disp_w, disp_h,
+            { hovered = Colors.dark_tint, active = Colors.dark_tint_sub }) then
+            reaper.CF_ShellExecute(selected.youtube_url)
+        end
+        UI.PlayIconOverlay(ctx, bx, by, disp_w, disp_h)
+
+        -- Caption below thumbnail
+        UI.TextColored(ctx, "\xe2\x96\xb6 Watch Tutorial", Colors.grey_mid, font_big, YT_CAPTION_FONT_SZ)
+        reaper.ImGui_Spacing(ctx)
+    elseif not (entry and entry.status == "error") then
+        reaper.ImGui_TextDisabled(ctx, "Loading preview...")
+        reaper.ImGui_Spacing(ctx)
+    end
+end
+
+local function DrawDescriptionTab()
+    if not reaper.ImGui_BeginTabItem(ctx, "Description") then return end
+
+    reaper.ImGui_Dummy(ctx, 0, README_PAD_Y)
+    reaper.ImGui_Indent(ctx, README_PAD_X)
+    DrawYouTubeThumbnail()
+    reaper.ImGui_TextWrapped(ctx, selected.description or "No description yet.")
+    reaper.ImGui_Unindent(ctx, README_PAD_X)
+    reaper.ImGui_EndTabItem(ctx)
+end
+
+local function DrawDocumentationTab()
+    if not reaper.ImGui_BeginTabItem(ctx, "Documentation") then return end
+
+    local readme = Fetch.readme_cache[selected.github_url] or "Loading..."
+    reaper.ImGui_Dummy(ctx, 0, README_PAD_Y)
+    reaper.ImGui_Indent(ctx, README_PAD_X)
+    if readme == "Loading..." then
+        reaper.ImGui_TextDisabled(ctx, "Loading...")
+    else
+        local base_raw_url = selected.github_url
+            :gsub("https://github%.com/", "https://raw.githubusercontent.com/")
+            .. "/main/"
+        MD.Render(readme, base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
+    end
+    reaper.ImGui_Unindent(ctx, README_PAD_X)
+    reaper.ImGui_EndTabItem(ctx)
+end
+
+local function DrawDetailTabs()
+    -- Tab bar styling: larger boxes, larger text, light-grey palette
+    reaper.ImGui_PushStyleVar  (ctx, reaper.ImGui_StyleVar_FramePadding(),         TAB_FRAME_PAD_X, TAB_FRAME_PAD_Y)
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Tab(),               Colors.grey)
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_TabHovered(),        Colors.grey_hover)
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_TabSelected(),       Colors.grey_mid)
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_TabDimmed(),         Colors.grey)
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_TabDimmedSelected(), Colors.grey_mid)
+    reaper.ImGui_PushFont(ctx, font_big, TAB_FONT_SZ)
+
+    if reaper.ImGui_BeginTabBar(ctx, "##detail_tabs") then
+        DrawDescriptionTab()
+        DrawDocumentationTab()
+        reaper.ImGui_EndTabBar(ctx)
+    end
+
+    reaper.ImGui_PopFont(ctx)
+    reaper.ImGui_PopStyleColor(ctx, 5)
+    reaper.ImGui_PopStyleVar(ctx)
 end
 
 local function DrawDetailPanel()
@@ -188,214 +520,17 @@ local function DrawDetailPanel()
     end
 
     local status     = PkgStatus.GetPackageStatus(selected)
-    local inst_label = (status == "installed") and "Reinstall" or "Install"
+    local di_state   = DirectInstaller.state
+    local di_busy    = di_state == "fetching_index" or di_state == "downloading"
+    local pkg_result = DirectInstaller.results[selected.reapack_url]
 
-    -- Header: package name (left) + Website / GitHub / Install buttons (right)
+    DrawDetailHeader(status)
+    DrawInstallStatus(di_busy, pkg_result, status)
     reaper.ImGui_Spacing(ctx)
-    local avail_w, _ = reaper.ImGui_GetContentRegionAvail(ctx)
-    local btn_pad_x  = 20
-    local btn_pad_y  = 10
-    local btn_gap    = 8
-
-    local web_label  = "Website"
-    local gh_label   = "GitHub"
-    local run_label  = "Run"
-
-    -- Push button font before CalcTextSize so widths are accurate for the rendered size
-    reaper.ImGui_PushFont(ctx, font_big, 16)
-
-    local web_tw,  _ = reaper.ImGui_CalcTextSize(ctx, web_label)
-    local gh_tw,   _ = reaper.ImGui_CalcTextSize(ctx, gh_label)
-    local inst_tw, _ = reaper.ImGui_CalcTextSize(ctx, inst_label)
-    local web_w      = web_tw  + btn_pad_x * 2
-    local gh_w       = gh_tw   + btn_pad_x * 2
-    local inst_w     = inst_tw + btn_pad_x * 2
-
-    local run_tw,  _ = reaper.ImGui_CalcTextSize(ctx, run_label)
-    local run_w      = run_tw + btn_pad_x * 2
-
-    local has_web    = selected.Website_url ~= nil
-    local has_run    = (status == "installed")
-    local total_w    = (has_web and (web_w + btn_gap) or 0)
-                     + gh_w + btn_gap
-                     + (has_run and (run_w + btn_gap) or 0)
-                     + inst_w
-
-    reaper.ImGui_PushFont(ctx, font_big, 24)
-    reaper.ImGui_Text(ctx, selected.name)
-    reaper.ImGui_PopFont(ctx)
-
-    if status == "installed" then
-        reaper.ImGui_SameLine(ctx)
-        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x55CC55FF)
-        local disp_v  = PkgStatus.GetCachedVersion(selected)
-        local ver_str = disp_v and (" v" .. disp_v) or ""
-        reaper.ImGui_Text(ctx, " ✓ Installed" .. ver_str)
-        reaper.ImGui_PopStyleColor(ctx)
-    elseif status == "imported" then
-        reaper.ImGui_SameLine(ctx)
-        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFF8800FF)
-        reaper.ImGui_Text(ctx, " ⚠ Imported")
-        reaper.ImGui_PopStyleColor(ctx)
-    end
-
-    reaper.ImGui_SameLine(ctx, avail_w - total_w, 0)
-    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(),        Colors.grey)
-    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x777777FF)
-    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(),  Colors.grey_mid)
-    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), btn_pad_x, btn_pad_y)
-    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(), 8) -- 👈 add this
-
-    if has_web then
-        if reaper.ImGui_Button(ctx, web_label) then
-            reaper.CF_ShellExecute(selected.Website_url)
-        end
-        reaper.ImGui_SameLine(ctx, 0, btn_gap)
-    end
-
-    if reaper.ImGui_Button(ctx, gh_label) then
-        reaper.CF_ShellExecute(selected.github_url)
-    end
-    reaper.ImGui_SameLine(ctx, 0, btn_gap)
-
-    if has_run then
-        local script_path = PkgStatus.GetScriptPath(selected)
-        if reaper.ImGui_Button(ctx, run_label) then
-            local cmd_id = reaper.AddRemoveReaScript(true, 0, script_path, true)
-            if cmd_id ~= 0 then
-                reaper.Main_OnCommand(cmd_id, 0)
-            else
-                reaper.ShowConsoleMsg("[ReaperToolkit] Could not register script: " .. script_path .. "\n")
-            end
-        end
-        reaper.ImGui_SameLine(ctx, 0, btn_gap)
-    end
-
-    if reaper.ImGui_Button(ctx, inst_label) then
-        ImportReapackRepo(selected.reapack_url, selected.name)
-        ---@diagnostic disable-next-line: undefined-global
-        InvalidateRepoCache()
-        PkgStatus.InvalidateFileCache()
-        PkgStatus.InvalidateVersionCache()
-    end
-
-    reaper.ImGui_PopStyleVar(ctx, 2)
-    reaper.ImGui_PopStyleColor(ctx, 3)
-    reaper.ImGui_PopFont(ctx)
-
-    if status == "installed" then
-        local online_v = PkgStatus.GetOnlineVersion(selected)
-        if online_v and PkgStatus.IsUpdateAvailable(selected) then
-            reaper.ImGui_Spacing(ctx)
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0xFFAA00FF)
-            reaper.ImGui_Text(ctx, "  \xe2\x86\x91 Update available: v" .. online_v)
-            reaper.ImGui_PopStyleColor(ctx)
-        end
-    end
-
-    reaper.ImGui_Spacing(ctx)
-
-    -- Tab bar styling: larger boxes, larger text, light-grey palette
-    reaper.ImGui_PushStyleVar(ctx,   reaper.ImGui_StyleVar_FramePadding(),           16, 8)
-    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Tab(),                   Colors.grey)
-    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_TabHovered(),            0x777777FF)
-    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_TabSelected(),           Colors.grey_mid)
-    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_TabDimmed(),             Colors.grey)
-    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_TabDimmedSelected(),     Colors.grey_mid)
-    reaper.ImGui_PushFont(ctx, font_big, 16)
-
-    if reaper.ImGui_BeginTabBar(ctx, "##detail_tabs") then
-        -- Description tab
-        if reaper.ImGui_BeginTabItem(ctx, "Description") then
-            reaper.ImGui_Dummy(ctx, 0, README_PAD_Y)
-            reaper.ImGui_Indent(ctx, README_PAD_X)
-
-            -- YouTube tutorial thumbnail (if the package has a youtube_url)
-            if selected.youtube_url then
-                local vid_id = selected.youtube_url:match("[?&]v=([%w_%-]+)")
-                if vid_id then
-                    local thumb_url = "https://img.youtube.com/vi/" .. vid_id .. "/mqdefault.jpg"
-                    Fetch.QueueImageFetch(thumb_url)
-                    local entry = Fetch.image_cache[thumb_url]
-                    if entry and entry.status == "ready" and entry.img then
-                        local tab_w, _ = reaper.ImGui_GetContentRegionAvail(ctx)
-                        local disp_w = math.min(tab_w, 480)
-                        local aspect = (entry.w and entry.w > 0) and (entry.h / entry.w) or (9 / 16)
-                        local disp_h = math.floor(disp_w * aspect)
-
-                        -- Capture screen pos before the button for the play-icon overlay
-                        local bx, by = reaper.ImGui_GetCursorScreenPos(ctx)
-
-                        reaper.ImGui_PushStyleVar  (ctx, reaper.ImGui_StyleVar_FramePadding(), 0, 0)
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(),        0x00000000)
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x22222244)
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(),  0x11111133)
-                        if reaper.ImGui_ImageButton(ctx, "##yt_thumb", entry.img, disp_w, disp_h) then
-                            reaper.CF_ShellExecute(selected.youtube_url)
-                        end
-                        reaper.ImGui_PopStyleColor(ctx, 3)
-                        reaper.ImGui_PopStyleVar(ctx)
-
-                        -- Play-icon overlay (always visible, brighter on hover)
-                        local hov = reaper.ImGui_IsItemHovered(ctx)
-                        local cx  = bx + disp_w * 0.5
-                        local cy  = by + disp_h * 0.5
-                        local r   = math.min(disp_w, disp_h) * 0.1
-                        local dl2 = reaper.ImGui_GetWindowDrawList(ctx)
-                        reaper.ImGui_DrawList_AddCircleFilled(dl2, cx, cy, r,
-                            hov and 0x000000BB or 0x00000066)
-                        reaper.ImGui_DrawList_AddTriangleFilled(dl2,
-                            cx - r * 0.35, cy - r * 0.6,
-                            cx + r * 0.7,  cy,
-                            cx - r * 0.35, cy + r * 0.6,
-                            hov and 0xFFFFFFFF or 0xFFFFFFCC)
-                        if hov then
-                            reaper.ImGui_SetMouseCursor(ctx, reaper.ImGui_MouseCursor_Hand())
-                        end
-
-                        -- Caption below thumbnail
-                        reaper.ImGui_PushFont(ctx, font_big, 12)
-                        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), Colors.grey_mid)
-                        reaper.ImGui_Text(ctx, "\xe2\x96\xb6 Watch Tutorial")
-                        reaper.ImGui_PopStyleColor(ctx)
-                        reaper.ImGui_PopFont(ctx)
-                        reaper.ImGui_Spacing(ctx)
-                    elseif not (entry and entry.status == "error") then
-                        reaper.ImGui_TextDisabled(ctx, "Loading preview...")
-                        reaper.ImGui_Spacing(ctx)
-                    end
-                end
-            end
-
-            reaper.ImGui_TextWrapped(ctx, selected.description or "No description yet.")
-            reaper.ImGui_Unindent(ctx, README_PAD_X)
-            reaper.ImGui_EndTabItem(ctx)
-        end
-
-        -- Documentation tab (README)
-        if reaper.ImGui_BeginTabItem(ctx, "Documentation") then
-            local readme = Fetch.readme_cache[selected.github_url] or "Loading..."
-            reaper.ImGui_Dummy(ctx, 0, README_PAD_Y)
-            reaper.ImGui_Indent(ctx, README_PAD_X)
-            if readme == "Loading..." then
-                reaper.ImGui_TextDisabled(ctx, "Loading...")
-            else
-                local base_raw_url = selected.github_url
-                    :gsub("https://github%.com/", "https://raw.githubusercontent.com/")
-                    .. "/main/"
-                MD.Render(readme, base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
-            end
-            reaper.ImGui_Unindent(ctx, README_PAD_X)
-            reaper.ImGui_EndTabItem(ctx)
-        end
-
-        reaper.ImGui_EndTabBar(ctx)
-    end
-
-    reaper.ImGui_PopFont(ctx)
-    reaper.ImGui_PopStyleColor(ctx, 5)
-    reaper.ImGui_PopStyleVar(ctx)
+    DrawDetailTabs()
 end
+
+-- ─── Profiler ───
 
 local function _prof(label, t0)
     local dt = (reaper.time_precise() - t0) * 1000
@@ -403,6 +538,195 @@ local function _prof(label, t0)
         reaper.ShowConsoleMsg(string.format("[PROFILE] %-30s %.2f ms\n", label, dt))
     end
 end
+
+-- ─── Title Bar ───
+
+local function DrawTitleBar()
+    local support_lbl = "Ask for Support"
+    local contact_lbl = "Contact Us"
+
+    local win_x, win_y = reaper.ImGui_GetWindowPos(ctx)
+    local win_w, _     = reaper.ImGui_GetWindowSize(ctx)
+
+    -- Background rect: top corners rounded to match window, bottom edge flat
+    local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
+    reaper.ImGui_DrawList_AddRectFilled(draw_list,
+        win_x, win_y, win_x + win_w, win_y + TITLEBAR_H, Colors.grey, WIN_ROUNDING)
+    reaper.ImGui_DrawList_AddRectFilled(draw_list,
+        win_x, win_y + math.floor(TITLEBAR_H / 2),
+        win_x + win_w, win_y + TITLEBAR_H, Colors.grey, 0)
+
+    -- Measure text-link widths with font pushed (so CalcTextSize is accurate)
+    reaper.ImGui_PushFont(ctx, font_big, TITLEBAR_FONT_SZ)
+    local tw_sup = reaper.ImGui_CalcTextSize(ctx, support_lbl)
+    local tw_con = reaper.ImGui_CalcTextSize(ctx, contact_lbl)
+    local bw_sup = tw_sup + TITLEBAR_BTN_PAD_X * 2
+    local bw_con = tw_con + TITLEBAR_BTN_PAD_X * 2
+    local btns_w = bw_sup + TITLEBAR_BTN_GAP + bw_con + TITLEBAR_BTN_GAP + CLOSE_BTN_SZ + 16
+    local drag_w = math.max(TITLEBAR_DRAG_MIN_W, win_w - btns_w)
+    local btn_h  = TITLEBAR_FONT_SZ + TITLEBAR_BTN_PAD_Y * 2
+
+    -- Invisible button over left/title area — handles window drag
+    reaper.ImGui_SetCursorPos(ctx, 0, 0)
+    reaper.ImGui_InvisibleButton(ctx, "##tb_drag", drag_w, TITLEBAR_H)
+    if reaper.ImGui_IsItemActive(ctx) then
+        local dx, dy = reaper.ImGui_GetMouseDelta(ctx)
+        _drag_next_x, _drag_next_y = win_x + dx, win_y + dy
+    end
+
+    -- Title text rendered on top of the drag area (Text is non-interactive)
+    reaper.ImGui_SetCursorPos(ctx, TITLEBAR_TITLE_X, math.floor((TITLEBAR_H - TITLEBAR_TITLE_FSZ) / 2))
+    UI.TextWithFont(ctx, "DM ReaperToolkit", font_big, TITLEBAR_TITLE_FSZ)
+
+    -- Text-link style: no visible background, hover/active stay transparent
+    local tb_link = {
+        rounding = 2, pad_x = TITLEBAR_BTN_PAD_X, pad_y = TITLEBAR_BTN_PAD_Y,
+        color = Colors.transparent, hovered = Colors.transparent, active = Colors.transparent,
+    }
+    local btn_y = math.floor((TITLEBAR_H - btn_h) / 2)
+    reaper.ImGui_SetCursorPos(ctx, drag_w + 8, btn_y)
+    if UI.Button(ctx, support_lbl, tb_link) then
+        reaper.CF_ShellExecute("https://www.demute.studio/support")
+    end
+    reaper.ImGui_SameLine(ctx, 0, TITLEBAR_BTN_GAP)
+    if UI.Button(ctx, contact_lbl, tb_link) then
+        reaper.CF_ShellExecute("https://www.demute.studio/contact")
+    end
+    reaper.ImGui_SameLine(ctx, 0, TITLEBAR_BTN_GAP)
+
+    -- Close button: InvisibleButton + hand-drawn X cross
+    reaper.ImGui_SetCursorPosY(ctx, math.floor((TITLEBAR_H - CLOSE_BTN_SZ) / 2))
+    local cls_bx, cls_by = reaper.ImGui_GetCursorScreenPos(ctx)
+    if reaper.ImGui_InvisibleButton(ctx, "##close", CLOSE_BTN_SZ, CLOSE_BTN_SZ) then
+        _open = false
+    end
+    local cls_hov = reaper.ImGui_IsItemHovered(ctx)
+    local cls_act = reaper.ImGui_IsItemActive(ctx)
+    local cls_col = cls_act and Colors.red_press or (cls_hov and Colors.red_hover or Colors.white_mid)
+    local m       = CLOSE_BTN_SZ * 0.28  -- inset margin for the X lines
+    reaper.ImGui_DrawList_AddLine(draw_list,
+        cls_bx + m,                cls_by + m,
+        cls_bx + CLOSE_BTN_SZ - m, cls_by + CLOSE_BTN_SZ - m, cls_col, CLOSE_BTN_LINE_W)
+    reaper.ImGui_DrawList_AddLine(draw_list,
+        cls_bx + CLOSE_BTN_SZ - m, cls_by + m,
+        cls_bx + m,                cls_by + CLOSE_BTN_SZ - m, cls_col, CLOSE_BTN_LINE_W)
+    reaper.ImGui_PopFont(ctx)
+
+    reaper.ImGui_SetCursorPos(ctx, 0, TITLEBAR_H)
+    return TITLEBAR_H
+end
+
+-- ─── Left Panel ───
+
+local function DrawCardList(avail_h, logo_area_h)
+    reaper.ImGui_BeginChild(ctx, "##card_scroll", left_w, avail_h - logo_area_h)
+    reaper.ImGui_SetCursorPosY(ctx, PAD_Y)
+    for i, pkg in ipairs(packages) do
+        local col = (i - 1) % COLS
+        if col == 0 then
+            reaper.ImGui_SetCursorPosX(ctx, PAD_X)
+        else
+            reaper.ImGui_SameLine(ctx, 0, SPACING)
+        end
+        reaper.ImGui_BeginGroup(ctx)
+        DrawPackageCard(pkg)
+        reaper.ImGui_EndGroup(ctx)
+        if reaper.ImGui_IsItemClicked(ctx) then
+            selected = pkg
+            Fetch.StartReadmeFetch(pkg)
+        end
+        if (i - 1) % COLS == COLS - 1 or i == #packages then
+            reaper.ImGui_Dummy(ctx, 0, VSPACING)
+        end
+    end
+    reaper.ImGui_EndChild(ctx)
+end
+
+local function DrawLogo()
+    if not _logo then return end
+    local logo_x = math.floor((left_w - LOGO_W) / 2)
+    reaper.ImGui_SetCursorPos(ctx, logo_x, reaper.ImGui_GetCursorPosY(ctx) + LOGO_PAD_Y)
+    if UI.ImageButton(ctx, "##logo", _logo.img, LOGO_W, logo_h) then
+        reaper.CF_ShellExecute("https://www.demute.studio/")
+    end
+    if reaper.ImGui_IsItemHovered(ctx) then
+        reaper.ImGui_SetMouseCursor(ctx, reaper.ImGui_MouseCursor_Hand())
+    end
+end
+
+local function DrawLeftPanel(avail_h)
+    local _nsb = reaper.ImGui_WindowFlags_NoScrollbar()       ---@diagnostic disable-line: undefined-global
+    local _nsm = reaper.ImGui_WindowFlags_NoScrollWithMouse() ---@diagnostic disable-line: undefined-global
+    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 0, 0)
+    reaper.ImGui_BeginChild(ctx, "##cards", left_w, avail_h, nil, _nsb | _nsm)
+    reaper.ImGui_PopStyleVar(ctx)
+
+    local logo_area_h = logo_h > 0 and (logo_h + LOGO_PAD_Y * 2) or 0
+    DrawCardList(avail_h, logo_area_h)
+    DrawLogo()
+
+    reaper.ImGui_EndChild(ctx)  -- ##cards
+end
+
+-- ─── Licence Gate ───
+
+local function DrawLicenceGate()
+    if _licence_accepted then return end
+
+    if _gate_needs_open then
+        reaper.ImGui_OpenPopup(ctx, "Licence Key##gate")
+        _gate_needs_open = false
+    end
+
+    local win_x, win_y = reaper.ImGui_GetWindowPos(ctx)
+    local win_w, win_h = reaper.ImGui_GetWindowSize(ctx)
+    reaper.ImGui_SetNextWindowPos(ctx,
+        win_x + win_w * 0.5, win_y + win_h * 0.5,
+        reaper.ImGui_Cond_Always(), 0.5, 0.5)
+
+    local flags = reaper.ImGui_WindowFlags_AlwaysAutoResize()
+                | reaper.ImGui_WindowFlags_NoMove()
+
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ModalWindowDimBg(), Colors.black_smoke)
+    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_PopupBg(),          Colors.grey_dark)
+    local open = reaper.ImGui_BeginPopupModal(ctx, "Licence Key##gate", nil, flags)
+    reaper.ImGui_PopStyleColor(ctx, 2)
+
+    if open then
+        reaper.ImGui_PushFont(ctx, font_big, LICENCE_FONT_SZ)
+        reaper.ImGui_Spacing(ctx)
+        reaper.ImGui_Text(ctx, "Please enter your Licence Key to continue:")
+        reaper.ImGui_Spacing(ctx)
+
+        reaper.ImGui_PushItemWidth(ctx, LICENCE_INPUT_W)
+        local changed, new_key = reaper.ImGui_InputText(ctx, "##licence_key", _licence_key, LICENCE_INPUT_MAX)
+        if changed then _licence_key = new_key end
+        reaper.ImGui_PopItemWidth(ctx)
+
+        reaper.ImGui_Spacing(ctx)
+
+        if UI.Button(ctx, "OK", {
+            color = Colors.grey_mid, hovered = Colors.grey_hover, active = Colors.grey_press,
+            pad_x = LICENCE_BTN_PAD_X, pad_y = LICENCE_BTN_PAD_Y,
+        }) then
+            _licence_accepted = true
+            reaper.ImGui_CloseCurrentPopup(ctx)
+        end
+        reaper.ImGui_SameLine(ctx, 0, LICENCE_BTN_GAP)
+        if UI.Button(ctx, "Cancel", {
+            color = Colors.grey, hovered = Colors.red_hover, active = Colors.red_press,
+            pad_x = LICENCE_BTN_PAD_X, pad_y = LICENCE_BTN_PAD_Y,
+        }) then
+            _open = false
+            reaper.ImGui_CloseCurrentPopup(ctx)
+        end
+
+        reaper.ImGui_PopFont(ctx)
+        reaper.ImGui_EndPopup(ctx)
+    end
+end
+
+-- ─── Main Loop ───
 
 local function loop()
     local _t = reaper.time_precise()
@@ -421,8 +745,15 @@ local function loop()
     MD.TickParse()
     _prof("TickParse", _t)
 
+    DirectInstaller.Tick()
+    if _prev_installer_state ~= "done" and DirectInstaller.state == "done" then
+        PkgStatus.InvalidateFileCache()
+        PkgStatus.InvalidateVersionCache()
+    end
+    _prev_installer_state = DirectInstaller.state
+
     if first_frame then
-        reaper.ImGui_SetNextWindowSize(ctx, 800, 400, reaper.ImGui_Cond_Always())
+        reaper.ImGui_SetNextWindowSize(ctx, WIN_INIT_W, WIN_INIT_H, reaper.ImGui_Cond_Always())
         first_frame = false
     end
     if _drag_next_x then
@@ -430,174 +761,38 @@ local function loop()
         _drag_next_x, _drag_next_y = nil, nil
     end
 
+    -- Recalculate dynamic layout values
+    card_w = math.max(100, left_w - PAD_X * 2 - SCROLLBAR_W - SPACING * (COLS - 1))
+    logo_h = _logo and math.floor(LOGO_W * _logo.h / _logo.w) or 0
+
     -- Window style: dark background, rounded corners, no native title bar (custom drawn)
     reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_WindowBg(), Colors.grey_dark)
-    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowRounding(), 10)
+    reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowRounding(), WIN_ROUNDING)
     reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 0, 0)
     local visible, _ = reaper.ImGui_Begin(ctx, "DM ReaperToolkit", true,
         reaper.ImGui_WindowFlags_NoTitleBar())
     reaper.ImGui_PopStyleVar(ctx, 2)
     reaper.ImGui_PopStyleColor(ctx)
+
     if visible then
         local _, avail_h = reaper.ImGui_GetContentRegionAvail(ctx)
 
-        -- Keep CARD_W and LOGO_H in sync with the current left panel width
-        CARD_W = math.max(100, left_w - PAD_X * 2 - SCROLLBAR_W - SPACING * (COLS - 1))
-        LOGO_H = _logo and math.floor(LOGO_W * _logo.h / _logo.w) or 0
-
-        -- Custom title bar (drawn as first window content; replaces native title bar)
-        do
-            local TITLEBAR_H  = 40
-            local tb_font_sz  = 13
-            local tb_pad_x    = 10
-            local tb_pad_y    = 5
-            local tb_gap      = 6
-            local support_lbl = "Ask for Support"
-            local contact_lbl = "Contact Us"
-
-            local win_x, win_y = reaper.ImGui_GetWindowPos(ctx)
-            local win_w, _     = reaper.ImGui_GetWindowSize(ctx)
-
-            -- Background rect: top corners rounded to match window, bottom edge flat
-            local dl = reaper.ImGui_GetWindowDrawList(ctx)
-            reaper.ImGui_DrawList_AddRectFilled(dl,
-                win_x, win_y, win_x + win_w, win_y + TITLEBAR_H, Colors.grey, 10)
-            reaper.ImGui_DrawList_AddRectFilled(dl,
-                win_x, win_y + math.floor(TITLEBAR_H / 2),
-                win_x + win_w, win_y + TITLEBAR_H, Colors.grey, 0)
-
-            -- Measure button widths with font pushed (so CalcTextSize is accurate)
-            reaper.ImGui_PushFont(ctx, font_big, tb_font_sz)
-            local tw_sup = reaper.ImGui_CalcTextSize(ctx, support_lbl)
-            local tw_con = reaper.ImGui_CalcTextSize(ctx, contact_lbl)
-            local tw_cls = reaper.ImGui_CalcTextSize(ctx, "X")
-            local bw_sup = tw_sup + tb_pad_x * 2
-            local bw_con = tw_con + tb_pad_x * 2
-            local bw_cls = tw_cls + tb_pad_x * 2
-            -- total width: buttons + gaps + 8px right margin
-            local btns_w = bw_sup + tb_gap + bw_con + tb_gap + bw_cls + 16
-            local drag_w = math.max(120, win_w - btns_w)
-            local btn_h  = tb_font_sz + tb_pad_y * 2
-
-            -- Invisible button over left/title area — handles window drag
-            reaper.ImGui_SetCursorPos(ctx, 0, 0)
-            reaper.ImGui_InvisibleButton(ctx, "##tb_drag", drag_w, TITLEBAR_H)
-            if reaper.ImGui_IsItemActive(ctx) then
-                local dx, dy = reaper.ImGui_GetMouseDelta(ctx)
-                _drag_next_x, _drag_next_y = win_x + dx, win_y + dy
-            end
-
-            -- Title text rendered on top of the drag area (Text is non-interactive)
-            reaper.ImGui_SetCursorPos(ctx, 12, math.floor((TITLEBAR_H - 16) / 2))
-            reaper.ImGui_PushFont(ctx, font_big, 16)
-            reaper.ImGui_Text(ctx, "DM ReaperToolkit")
-            reaper.ImGui_PopFont(ctx)
-
-            -- Button style
-            reaper.ImGui_PushStyleVar  (ctx, reaper.ImGui_StyleVar_FrameRounding(), 4)
-            reaper.ImGui_PushStyleVar  (ctx, reaper.ImGui_StyleVar_FramePadding(),  tb_pad_x, tb_pad_y)
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(),        Colors.grey_mid)
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x777777FF)
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(),  0x444444FF)
-
-            -- Buttons: right-aligned, vertically centred in the title bar
-            local btn_y = math.floor((TITLEBAR_H - btn_h) / 2)
-            reaper.ImGui_SetCursorPos(ctx, drag_w + 8, btn_y)
-            if reaper.ImGui_Button(ctx, support_lbl) then
-                reaper.CF_ShellExecute("https://www.demute.studio/support")
-            end
-            reaper.ImGui_SameLine(ctx, 0, tb_gap)
-            if reaper.ImGui_Button(ctx, contact_lbl) then
-                reaper.CF_ShellExecute("https://www.demute.studio/contact")
-            end
-            reaper.ImGui_SameLine(ctx, 0, tb_gap)
-            -- Close button: red tint on hover
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0xCC3333FF)
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(),  0x993333FF)
-            if reaper.ImGui_Button(ctx, "X##close") then
-                _open = false
-            end
-            reaper.ImGui_PopStyleColor(ctx, 2)
-
-            reaper.ImGui_PopStyleColor(ctx, 3)
-            reaper.ImGui_PopStyleVar  (ctx, 2)
-            reaper.ImGui_PopFont(ctx)
-
-            -- Advance cursor below the title bar; reduce height budget for children
-            reaper.ImGui_SetCursorPos(ctx, 0, TITLEBAR_H)
-            avail_h = avail_h - TITLEBAR_H
+        -- Draw a thin border when the window is focused
+        if reaper.ImGui_IsWindowFocused(ctx, reaper.ImGui_FocusedFlags_RootAndChildWindows()) then
+            local wx, wy = reaper.ImGui_GetWindowPos(ctx)
+            local ww, wh = reaper.ImGui_GetWindowSize(ctx)
+            local draw_list = reaper.ImGui_GetForegroundDrawList(ctx)
+            reaper.ImGui_DrawList_AddRect(draw_list, wx, wy, wx + ww, wy + wh, WIN_FOCUS_COLOR, WIN_ROUNDING, nil, 1)
         end
 
-        local _nsb = reaper.ImGui_WindowFlags_NoScrollbar()      ---@diagnostic disable-line: undefined-global
-        local _nsm = reaper.ImGui_WindowFlags_NoScrollWithMouse() ---@diagnostic disable-line: undefined-global
-        reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 0, 0)
-        reaper.ImGui_BeginChild(ctx, "##cards", left_w, avail_h, nil, _nsb | _nsm)
-        reaper.ImGui_PopStyleVar(ctx)
+        avail_h = avail_h - DrawTitleBar()
 
-        local logo_area_h = LOGO_H > 0 and (LOGO_H + LOGO_PAD_Y * 2) or 0
-        reaper.ImGui_BeginChild(ctx, "##card_scroll", left_w, avail_h - logo_area_h)
-        reaper.ImGui_SetCursorPosY(ctx, PAD_Y)
-        for i, pkg in ipairs(packages) do
-            local col = (i - 1) % COLS
-            if col == 0 then
-                reaper.ImGui_SetCursorPosX(ctx, PAD_X)
-            else
-                reaper.ImGui_SameLine(ctx, 0, SPACING)
-            end
-            reaper.ImGui_BeginGroup(ctx)
-            DrawPackageCard(pkg)
-            reaper.ImGui_EndGroup(ctx)
-
-            if reaper.ImGui_IsItemClicked(ctx) then
-                selected = pkg
-                Fetch.StartReadmeFetch(pkg)
-            end
-
-            -- vertical gap after each completed row
-            if (i - 1) % COLS == COLS - 1 or i == #packages then
-                reaper.ImGui_Dummy(ctx, 0, VSPACING)
-            end
-        end
-        reaper.ImGui_EndChild(ctx)  -- ##card_scroll
-
-        if _logo then
-            local logo_x = math.floor((left_w - LOGO_W) / 2)
-            reaper.ImGui_SetCursorPos(ctx, logo_x, reaper.ImGui_GetCursorPosY(ctx) + LOGO_PAD_Y)
-            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 0, 0)
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(),        0x00000000)
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x00000000)
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(),  0x00000000)
-            if reaper.ImGui_ImageButton(ctx, "##logo", _logo.img, LOGO_W, LOGO_H) then
-                reaper.CF_ShellExecute("https://www.demute.studio/")
-            end
-            reaper.ImGui_PopStyleColor(ctx, 3)
-            reaper.ImGui_PopStyleVar(ctx)
-            if reaper.ImGui_IsItemHovered(ctx) then
-                reaper.ImGui_SetMouseCursor(ctx, reaper.ImGui_MouseCursor_Hand())
-            end
-        end
-
-        reaper.ImGui_EndChild(ctx)  -- ##cards
-
-        -- Draggable splitter
+        DrawLeftPanel(avail_h)
         reaper.ImGui_SameLine(ctx, 0, 0)
-        local sx, sy = reaper.ImGui_GetCursorScreenPos(ctx)
-        reaper.ImGui_InvisibleButton(ctx, "##splitter", SPLITTER_W, avail_h)
-        local sp_hov = reaper.ImGui_IsItemHovered(ctx)
-        local sp_act = reaper.ImGui_IsItemActive(ctx)
-        if sp_hov or sp_act then
-            reaper.ImGui_SetMouseCursor(ctx, reaper.ImGui_MouseCursor_ResizeEW())
+        local sp_dx = UI.Splitter(ctx, "##splitter", SPLITTER_W, avail_h)
+        if sp_dx then
+            left_w = math.max(PAD_X * 2 + SCROLLBAR_W + 150, left_w + sp_dx)
         end
-        if sp_act then
-            local dx = reaper.ImGui_GetMouseDelta(ctx)
-            left_w = math.max(PAD_X * 2 + SCROLLBAR_W + 150, left_w + dx)
-        end
-        local sp_col = (sp_hov or sp_act) and 0xFFFFFF88 or 0xFFFFFF33
-        local win_dl = reaper.ImGui_GetWindowDrawList(ctx)
-        reaper.ImGui_DrawList_AddRectFilled(win_dl,
-            sx + (SPLITTER_W - 2) / 2, sy,
-            sx + (SPLITTER_W + 2) / 2, sy + avail_h,
-            sp_col, 0)
         reaper.ImGui_SameLine(ctx, 0, 0)
 
         reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), INSPECTOR_PAD_X, INSPECTOR_PAD_Y)
@@ -606,12 +801,11 @@ local function loop()
         reaper.ImGui_EndChild(ctx)
         reaper.ImGui_PopStyleVar(ctx)
 
+        DrawLicenceGate()
         reaper.ImGui_End(ctx)
     end
 
-    if _open then
-        reaper.defer(loop)
-    end
+    if _open then reaper.defer(loop) end
 end
 
 reaper.defer(loop)

@@ -9,6 +9,31 @@ local _file_exists_cache = {}
 local _file_exists_time  = 0
 local _cached_versions   = {}  -- key "index_name:script_name" -> version or false
 
+-- Returns true if version string a is numerically greater than b
+local function VersionGT(a, b)
+    local function nums(v)
+        local t = {}
+        for n in (v or ""):gmatch("%d+") do t[#t + 1] = tonumber(n) end
+        return t
+    end
+    local na, nb = nums(a), nums(b)
+    for i = 1, math.max(#na, #nb) do
+        local x, y = na[i] or 0, nb[i] or 0
+        if x > y then return true end
+        if x < y then return false end
+    end
+    return false
+end
+
+-- Returns the highest version name found within an XML block
+local function HighestVersionIn(xml_block)
+    local best
+    for v in xml_block:gmatch('<version[^>]+name="([^"]*)"') do
+        if not best or VersionGT(v, best) then best = v end
+    end
+    return best
+end
+
 function M.Init(Fetch)
     _Fetch = Fetch
 end
@@ -44,12 +69,11 @@ end
 
 M.GetScriptPath = GetScriptPath
 
--- Returns "none", "imported", or "installed"
+-- Returns "none" or "installed" based purely on whether the main script file exists on disk.
 function M.GetPackageStatus(pkg)
-    if not IsRepoRegistered(pkg.reapack_url) then return "none" end
     local path = GetScriptPath(pkg)
-    if not path then return "imported" end
-    return FileExists(path) and "installed" or "imported"
+    if not path then return "none" end
+    return FileExists(path) and "installed" or "none"
 end
 
 -- Returns the online version string for the package's main script, or nil
@@ -60,9 +84,11 @@ function M.GetOnlineVersion(pkg)
     return idx.versions and idx.versions[script_name]
 end
 
--- Reads the first <version name="..."> for this package's script from
--- ReaPack's local cache XML ({ResourcePath}\ReaPack\cache\{index_name}.xml).
--- This reflects what version ReaPack has synced locally.
+-- Returns the installed version for this package's script.
+-- Checks (in order):
+--   1. Our cache folder ({Res}\Scripts\DM_ReaperToolkit\cache\{index_name}.xml)
+--      written by DM_DirectInstaller after each direct install.
+--   2. ReaPack's local cache XML ({Res}\ReaPack\cache\{index_name}.xml) as fallback.
 function M.GetCachedVersion(pkg)
     local idx = _Fetch.index_cache[pkg.reapack_url]
     if type(idx) ~= "table" or idx.error then return nil end
@@ -74,6 +100,29 @@ function M.GetCachedVersion(pkg)
     if not _resource_path then
         _resource_path = reaper.GetResourcePath():gsub("/", "\\")
     end
+
+    local esc = script_name:gsub("([%.%+%-%*%?%[%]%^%$%(%)%%])", "%%%1")
+
+    -- 1. Our cache folder (populated by DM_DirectInstaller)
+    local cash_path = _resource_path .. "\\Scripts\\DM_ReaperToolkit\\cache\\" .. idx.index_name .. ".xml"
+    local cf = io.open(cash_path, "r")
+    if cf then
+        local cash_xml = cf:read("*a")
+        cf:close()
+        local cpos = cash_xml:find('reapack[^>]+name="' .. esc .. '"')
+        local cver
+        if cpos then
+            local rp_end = cash_xml:find('</reapack>', cpos, true) or #cash_xml
+            cver = HighestVersionIn(cash_xml:sub(cpos, rp_end))
+        end
+        cver = cver or HighestVersionIn(cash_xml)
+        if cver then
+            _cached_versions[key] = cver
+            return cver
+        end
+    end
+
+    -- 2. ReaPack's local cache (fallback for ReaPack-managed installs)
     local cache_path = _resource_path .. "\\ReaPack\\cache\\" .. idx.index_name .. ".xml"
     local f = io.open(cache_path, "r")
     if not f then
@@ -82,38 +131,24 @@ function M.GetCachedVersion(pkg)
     end
     local xml = f:read("*a")
     f:close()
-    -- Find the reapack block for this script, then grab its first version tag
-    local esc = script_name:gsub("([%.%+%-%*%?%[%]%^%$%(%)%%])", "%%%1")
     local pos = xml:find('reapack[^>]+name="' .. esc .. '"')
     local ver
     if pos then
-        ver = xml:sub(pos):match('<version[^>]+name="([^"]*)"')
+        local rp_end = xml:find('</reapack>', pos, true) or #xml
+        ver = HighestVersionIn(xml:sub(pos, rp_end))
     end
-    -- Fallback: first version anywhere in the file
-    ver = ver or xml:match('<version[^>]+name="([^"]*)"')
+    ver = ver or HighestVersionIn(xml)
     _cached_versions[key] = ver or false
     return ver
 end
 
--- True when the online version is newer than ReaPack's local cached version
+-- True when the online version is newer than the locally cached version
 function M.IsUpdateAvailable(pkg)
     local online = M.GetOnlineVersion(pkg)
     if not online then return false end
     local cached = M.GetCachedVersion(pkg)
     if not cached then return false end
-    -- Compare dot-separated numeric segments
-    local function nums(v)
-        local t = {}
-        for n in (v or ""):gmatch("%d+") do t[#t + 1] = tonumber(n) end
-        return t
-    end
-    local a, b = nums(cached), nums(online)
-    for i = 1, math.max(#a, #b) do
-        local x, y = a[i] or 0, b[i] or 0
-        if x < y then return true end
-        if x > y then return false end
-    end
-    return false
+    return VersionGT(online, cached)
 end
 
 function M.InvalidateFileCache()
