@@ -92,14 +92,6 @@ local TAB_FONT_SZ     = 16
 local YT_THUMB_MAX_W    = 480
 local YT_CAPTION_FONT_SZ = 12
 
--- Licence gate popup
-local LICENCE_FONT_SZ   = 14
-local LICENCE_INPUT_W   = 300
-local LICENCE_INPUT_MAX = 256
-local LICENCE_BTN_GAP   = 10
-local LICENCE_BTN_PAD_X = 20
-local LICENCE_BTN_PAD_Y = 8
-
 -- ─── State ───
 
 local ctx      = reaper.ImGui_CreateContext("DM ReaperToolkit")
@@ -145,10 +137,6 @@ local selected              = nil
 local first_frame           = true
 local _open                 = true
 local _prev_installer_state = "idle"  -- used to detect DirectInstaller "done" transition
-
-local _licence_accepted = false
-local _licence_key      = ""
-local _gate_needs_open  = true
 
 -- ─── Thumbnail Cache ───
 
@@ -729,76 +717,6 @@ local function DrawLeftPanel(avail_h)
     reaper.ImGui_EndChild(ctx)  -- ##cards
 end
 
--- ─── Licence Gate ───
-
-local function DrawLicenceGate()
-    if _licence_accepted then return end
-
-    if _gate_needs_open then
-        reaper.ImGui_OpenPopup(ctx, "Licence Key##gate")
-        _gate_needs_open = false
-    end
-
-    local win_x, win_y = reaper.ImGui_GetWindowPos(ctx)
-    local win_w, win_h = reaper.ImGui_GetWindowSize(ctx)
-    reaper.ImGui_SetNextWindowPos(ctx,
-        win_x + win_w * 0.5, win_y + win_h * 0.5,
-        reaper.ImGui_Cond_Always(), 0.5, 0.5)
-
-    local flags = reaper.ImGui_WindowFlags_AlwaysAutoResize()
-                | reaper.ImGui_WindowFlags_NoMove()
-
-    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ModalWindowDimBg(), Colors.black_smoke)
-    reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_PopupBg(),          Colors.grey_dark)
-    local open = reaper.ImGui_BeginPopupModal(ctx, "Licence Key##gate", nil, flags)
-    reaper.ImGui_PopStyleColor(ctx, 2)
-
-    if open then
-        reaper.ImGui_PushFont(ctx, font_big, LICENCE_FONT_SZ)
-        reaper.ImGui_Spacing(ctx)
-        reaper.ImGui_Text(ctx, "Please enter your Licence Key to continue:")
-        reaper.ImGui_Spacing(ctx)
-
-        reaper.ImGui_PushItemWidth(ctx, LICENCE_INPUT_W)
-        local changed, new_key = reaper.ImGui_InputText(ctx, "##licence_key", _licence_key, LICENCE_INPUT_MAX)
-        if changed then _licence_key = new_key end
-        reaper.ImGui_PopItemWidth(ctx)
-
-        reaper.ImGui_Spacing(ctx)
-
-        if UI.Button(ctx, "OK", {
-            color = Colors.grey_mid, hovered = Colors.grey_hover, active = Colors.grey_press,
-            pad_x = LICENCE_BTN_PAD_X, pad_y = LICENCE_BTN_PAD_Y,
-        }) then
-            _licence_accepted = true
-            reaper.ImGui_CloseCurrentPopup(ctx)
-        end
-        reaper.ImGui_SameLine(ctx, 0, LICENCE_BTN_GAP)
-        if UI.Button(ctx, "Cancel", {
-            color = Colors.grey, hovered = Colors.red_hover, active = Colors.red_press,
-            pad_x = LICENCE_BTN_PAD_X, pad_y = LICENCE_BTN_PAD_Y,
-        }) then
-            _open = false
-            reaper.ImGui_CloseCurrentPopup(ctx)
-        end
-
-        reaper.ImGui_Spacing(ctx)
-        local link_style = {
-            rounding = 2, pad_x = 0, pad_y = 0,
-            color = Colors.transparent, hovered = Colors.transparent, active = Colors.transparent,
-        }
-        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), Theme.C.accent)
-        if UI.Button(ctx, "Get licence key here", link_style) then
-            reaper.CF_ShellExecute("https://www.demute.studio/")
-        end
-        reaper.ImGui_PopStyleColor(ctx)
-        reaper.ImGui_Spacing(ctx)
-
-        reaper.ImGui_PopFont(ctx)
-        reaper.ImGui_EndPopup(ctx)
-    end
-end
-
 -- ─── Main Loop ───
 
 local function loop()
@@ -864,7 +782,6 @@ local function loop()
         end
         reaper.ImGui_PopStyleVar(ctx)
 
-        DrawLicenceGate()
         Theme.PopUI(ctx)
         reaper.ImGui_End(ctx)
     end

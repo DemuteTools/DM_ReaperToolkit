@@ -153,15 +153,12 @@ local function ParseIndex(xml)
                 local main_val  = tag:match('main="([^"]*)"')
                 local is_main   = main_val ~= nil and main_val ~= ""
 
-                -- Skip Common files (installed by toolkit already)
-                local skip = file_attr and file_attr:find("^Common/")
-
                 -- URL is the text content between <source ...> and </source>
                 local url_s, url_e = xml:find('</source>', pos, true)
                 local url = url_s and xml:sub(pos, url_s - 1):match('^%s*(.-)%s*$') or ""
                 if url_s then pos = url_e + 1 end
 
-                if url ~= "" and not skip then
+                if url ~= "" then
                     local rel  = (file_attr or cur_rp_name):gsub('/', '\\')
                     local dest
                     if cur_rp_type == 'data' then
