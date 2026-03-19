@@ -5,7 +5,9 @@
 local _dir = debug.getinfo(1, 'S').source:match("^@(.*[/\\])")
 dofile(_dir .. "DM_ToolkitFunctionsLibrary.lua")
 
-local packages        = dofile(_dir .. "DM_Packages.lua")
+local _pkg_data       = dofile(_dir .. "DM_Packages.lua")
+local packages        = _pkg_data.packages
+local _toolkit_info   = _pkg_data.toolkit
 local Fetch           = dofile(_dir .. "DM_AsyncFetch.lua")
 local MD              = dofile(_dir .. "DM_Markdown.lua")
 local PkgStatus       = dofile(_dir .. "DM_PackageStatus.lua")
@@ -314,8 +316,8 @@ local function DrawPackageCard(pkg)
     DrawCardImage(draw_list, thumb, x, y, bar_h)
     DrawCardBadge(draw_list, pkg, status, x, y)
 
-    -- Title text overlaid on the dark bar (uses foreground DrawList channel)
-    local text_dl = reaper.ImGui_GetForegroundDrawList(ctx)
+    -- Title text overlaid on the dark bar (same draw list, drawn after image)
+    local text_dl = draw_list
     reaper.ImGui_PushFont(ctx, font_big, TEXT_SIZE)
     local text_x = x + TEXT_PAD
     local text_y = y + TEXT_PAD
@@ -347,6 +349,39 @@ local function DrawPackageCard(pkg)
     local hov = reaper.ImGui_IsItemHovered(ctx)
     local act = reaper.ImGui_IsItemActive(ctx)
     DrawCardOverlay(draw_list, x, y, bar_h, hov, act)
+end
+
+-- ─── Toolkit info (shown when no card is selected) ───
+
+local function DrawToolkitInfo()
+    reaper.ImGui_Spacing(ctx)
+    UI.TextWithFont(ctx, _toolkit_info.name, font_big, DETAIL_TITLE_FONT_SZ)
+
+    local avail_w, _ = reaper.ImGui_GetContentRegionAvail(ctx)
+    local has_gh = _toolkit_info.github_url ~= ""
+
+    if has_gh then
+        reaper.ImGui_SameLine(ctx, avail_w - ICON_SIZE + INSPECTOR_PAD_X, 0)
+        DrawIconButton("##tk_gh", _ico_gh, "GitHub", _toolkit_info.github_url)
+    end
+
+    reaper.ImGui_Spacing(ctx)
+
+    -- Show toolkit README via documentation tab
+    Fetch.StartReadmeFetch(_toolkit_info)
+    local readme = Fetch.readme_cache[_toolkit_info.github_url] or "Loading..."
+
+    reaper.ImGui_Dummy(ctx, 0, README_PAD_Y)
+    reaper.ImGui_Indent(ctx, README_PAD_X)
+    if readme == "Loading..." then
+        reaper.ImGui_TextDisabled(ctx, "Loading...")
+    else
+        local base_raw_url = _toolkit_info.github_url
+            :gsub("https://github%.com/", "https://raw.githubusercontent.com/")
+            .. "/main/"
+        MD.Render(readme, base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
+    end
+    reaper.ImGui_Unindent(ctx, README_PAD_X)
 end
 
 -- ─── Detail Panel ───
@@ -557,8 +592,7 @@ end
 
 local function DrawDetailPanel()
     if not selected then
-        reaper.ImGui_Spacing(ctx)
-        reaper.ImGui_TextDisabled(ctx, "Select a package to see details.")
+        DrawToolkitInfo()
         return
     end
 
@@ -620,6 +654,21 @@ local function DrawToolbar()
     _tb_contact_hov = reaper.ImGui_IsItemHovered(ctx)
     if _tb_contact_hov then
         reaper.ImGui_SetMouseCursor(ctx, reaper.ImGui_MouseCursor_Hand())
+    end
+
+    -- Home button (deselects card → shows toolkit info)
+    reaper.ImGui_SameLine(ctx, left_w - GEAR_BTN_SZ * 2 - PAD_X - TOOLBAR_BTN_GAP, 0)
+    local home_style = {
+        rounding = 4, pad_x = 0, pad_y = 0,
+        color = Colors.transparent, hovered = 0x444444FF, active = 0x555555FF,
+    }
+    reaper.ImGui_PushFont(ctx, font_big, 17)
+    if UI.Button(ctx, "\xe2\x8c\x82##home", home_style) then
+        selected = nil
+    end
+    reaper.ImGui_PopFont(ctx)
+    if reaper.ImGui_IsItemHovered(ctx) then
+        reaper.ImGui_SetTooltip(ctx, "Home")
     end
 
     -- Settings gear button (text-based)

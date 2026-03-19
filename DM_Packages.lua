@@ -1,4 +1,11 @@
 return {
+    toolkit = {
+        name        = "Demute Reaper Toolkit",
+        github_url  = "https://github.com/DemuteStudio/DM_ReaperToolkit",
+        Website_url = "",
+        youtube_url = "",
+    },
+    packages = {
     {
         name        = "Waveform-Matcher",
         reapack_url = "https://raw.githubusercontent.com/DemuteStudio/Waveform-Matcher/main/index.xml",
@@ -48,4 +55,4 @@ return {
         Website_url = "https://www.demute.studio/blog-post/auto-voice-lines-edit-and-naming",
         main_script = "voiceutilities_detectitemtakes.py",
     }
-}
+}}
