@@ -27,6 +27,20 @@ return {
         main_script = "ReaHaptic_Settings.lua",
     },
     {
+        name        = "AssetVideoOverlay",
+        reapack_url = "https://raw.githubusercontent.com/DemuteStudio/DM_AssetVideoOverlay/refs/heads/main/index.xml",
+        github_url  = "https://github.com/DemuteStudio/DM_AssetVideoOverlay",
+        Website_url = "None",
+        main_script = "DM_AssetVideoOverlay.lua",
+    },
+        {
+        name        = "SubprojectManager",
+        reapack_url = "https://raw.githubusercontent.com/DemuteStudio/DM_SubProjectManager/refs/heads/main/index.xml",
+        github_url  = "https://github.com/DemuteStudio/DM_SubProjectManager",
+        Website_url = "None",
+        main_script = "DM_SubprojectManager.lua",
+    },
+    {
         name        = "Voice Rec Session Manager",
         reapack_url = "None",
         drive_url   = "https://drive.google.com/file/d/1cy-UQQpIew9pl1k1aNSkr4VxI0aGymzR/view",
