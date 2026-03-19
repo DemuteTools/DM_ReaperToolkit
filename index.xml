@@ -17,6 +17,11 @@
         <source file="Resources/Thumbnails/SubprojectManager.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/SubprojectManager.png</source>
         <source file="Resources/Thumbnails/Waveform-Matcher.jpg">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Waveform-Matcher.jpg</source>
         <source file="Resources/Thumbnails/AssetVideoOverlay.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/AssetVideoOverlay.png</source>
+        <source file="Resources/Thumbnails/Auto Voice Lines Edit and Naming.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Auto%20Voice%20Lines%20Edit%20and%20Naming.png</source>
+        <!-- PythonScripts -->
+        <source file="Common/PythonScripts/DM_ReaLibrary.py">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/PythonScripts/DM_ReaLibrary.py</source>
+        <source file="Common/PythonScripts/sws_python.py">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/PythonScripts/sws_python.py</source>
+        <source file="Common/PythonScripts/sws_python64.py">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/PythonScripts/sws_python64.py</source>
         <!-- Common -->
         <source file="Common/Scripts/DM_Colors.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_Colors.lua</source>
         <source file="Common/Scripts/DM_ImageUtils.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_ImageUtils.lua</source>

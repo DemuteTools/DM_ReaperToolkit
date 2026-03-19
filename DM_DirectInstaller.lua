@@ -49,10 +49,21 @@ local function IsDrivePkg(pkg)
     return type(pkg.drive_url) == "string" and pkg.reapack_url == "None"
 end
 
+local PYTHON_SCRIPTS_DIR = "Scripts\\Demute_toolkit\\pythonScripts"
+
 local function DriveDest(pkg)
-    return _res .. "\\Scripts\\DM_DrivePackages\\" .. pkg.name .. "\\" .. pkg.main_script
+    return _res .. "\\" .. PYTHON_SCRIPTS_DIR .. "\\" .. pkg.main_script
 end
 M.DriveDest = DriveDest
+
+-- Python dependency files bundled with every Drive-installed script
+local _py_base = "https://raw.githubusercontent.com/DemuteStudio/"
+    .. "DM_ReaperToolkit/main/Common/PythonScripts/"
+local PYTHON_DEPS = {
+    { file = "DM_ReaLibrary.py",  url = _py_base .. "DM_ReaLibrary.py" },
+    { file = "sws_python.py",     url = _py_base .. "sws_python.py" },
+    { file = "sws_python64.py",   url = _py_base .. "sws_python64.py" },
+}
 
 local function VersionGT(a, b)
     local function nums(v)
@@ -212,21 +223,42 @@ function M.StartInstall(pkg)
             return
         end
 
-        local dl_url   = "https://drive.usercontent.google.com/download?id=" .. file_id .. "&export=download&confirm=t"
+        local dl_url   = "https://drive.usercontent.google.com/download?id="
+            .. file_id .. "&export=download&confirm=t"
         local dest     = DriveDest(pkg)
-        local dest_fwd = dest:gsub('\\', '/')
-        local dir      = dest:match('^(.*[/\\])')
+        local dir      = _res .. "\\" .. PYTHON_SCRIPTS_DIR
         local ext      = pkg.main_script:match('%.(%w+)$') or ""
         local is_main  = ext == "lua" or ext == "py"
 
+        -- Build file list: main script + python dependencies
         _files = {{ url = dl_url, dest = dest, is_main = is_main, name = pkg.name }}
+        for _, dep in ipairs(PYTHON_DEPS) do
+            _files[#_files + 1] = {
+                url     = dep.url,
+                dest    = dir .. "\\" .. dep.file,
+                is_main = false,
+                name    = dep.file,
+            }
+        end
 
-        reaper.ShowConsoleMsg("[DM_Installer] Drive download starting\n")
-        reaper.ShowConsoleMsg("[DM_Installer] URL: " .. dl_url .. "\n")
-        reaper.ShowConsoleMsg("[DM_Installer] Dest: " .. dest_fwd .. "\n")
-
+        -- Write curl config for all files
         os.remove(TMP_DL_DONE)
-        local err_file = _tmp .. "\\dm_inst_curl_err.txt"
+        local cf = io.open(TMP_DL_CFG, "w")
+        if not cf then
+            M.state   = "error"
+            M.message = "Could not write curl config file."
+            M.results[_pkg_key] = { state = "error", message = M.message }
+            M.active_url = nil
+            return
+        end
+        for _, entry in ipairs(_files) do
+            local d = entry.dest:gsub('\\', '/')
+            cf:write(string.format('url = "%s"\r\noutput = "%s"\r\n',
+                entry.url, d))
+        end
+        cf:close()
+
+        -- Build PS1: mkdir + parallel curl + sentinel
         local df = io.open(TMP_DL_PS1, "w")
         if not df then
             M.state   = "error"
@@ -235,17 +267,18 @@ function M.StartInstall(pkg)
             M.active_url = nil
             return
         end
-        if dir then
-            df:write(string.format('New-Item -ItemType Directory -Force -Path "%s" | Out-Null\r\n', dir))
-        end
-        local err_fwd = err_file:gsub('\\', '/')
-        -- Store URL in a PS variable to avoid any quoting issues with & in the URL
-        df:write(string.format('$url = "%s"\r\n', dl_url))
-        df:write(string.format('$out = "%s"\r\n', dest_fwd))
-        df:write('$err = & curl.exe -SL4 $url -o $out 2>&1\r\n')
         df:write(string.format(
-            '$err | Out-File -FilePath "%s" -Encoding ascii\r\n', err_fwd))
-        df:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', TMP_DL_DONE))
+            'New-Item -ItemType Directory -Force -Path "%s" | Out-Null\r\n',
+            dir))
+        df:write(string.format(
+            'curl.exe --parallel --parallel-immediate -SL4 -K "%s"\r\n',
+            TMP_DL_CFG))
+        df:write(string.format(
+            'Remove-Item -Path "%s" -ErrorAction SilentlyContinue\r\n',
+            TMP_DL_CFG))
+        df:write(string.format(
+            'New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n',
+            TMP_DL_DONE))
         df:close()
 
         LaunchBg(TMP_DL_PS1)
@@ -387,34 +420,6 @@ function M.Tick()
         os.remove(TMP_DL_PS1)
         os.remove(TMP_DL_CFG)
 
-        -- Debug: log curl stderr to REAPER console
-        local err_file = _tmp .. "\\dm_inst_curl_err.txt"
-        local ef = io.open(err_file, "r")
-        if ef then
-            local curl_err = ef:read("*a") or ""
-            ef:close()
-            reaper.ShowConsoleMsg("[DM_Installer] curl stderr:\n" .. curl_err .. "\n")
-        else
-            reaper.ShowConsoleMsg("[DM_Installer] No curl stderr file found.\n")
-        end
-
-        -- Debug: log downloaded file info to REAPER console
-        reaper.ShowConsoleMsg("[DM_Installer] Download complete. Checking files:\n")
-        for _, entry in ipairs(_files) do
-            local fh = io.open(entry.dest, "r")
-            if fh then
-                local head = fh:read(200) or ""
-                local size = fh:seek("end") or 0
-                fh:close()
-                reaper.ShowConsoleMsg(string.format(
-                    "  [OK] %s (%d bytes)\n  First 200 chars: %s\n",
-                    entry.dest, size, head:gsub("\n", "\\n")))
-            else
-                reaper.ShowConsoleMsg(string.format(
-                    "  [MISSING] %s — file does not exist!\n", entry.dest))
-            end
-        end
-
         -- Register REAPER actions for all main scripts
         local registered = 0
         for _, entry in ipairs(_files) do
@@ -443,16 +448,23 @@ end
 function M.StartUninstall(pkg, index_name)
     if M.state == "fetching_index" or M.state == "downloading" then return end
 
-    -- ── Drive package: delete single known file ───────────────────────────────
+    -- ── Drive package: delete main script + python dependencies ────────────
     if IsDrivePkg(pkg) then
         local pkg_key = pkg.drive_url
         local dest    = DriveDest(pkg)
+        local dir     = _res .. "\\" .. PYTHON_SCRIPTS_DIR
         reaper.AddRemoveReaScript(false, 0, dest, true)
-        if os.remove(dest) then
-            M.results[pkg_key] = { state = "done", message = "Uninstalled." }
-        else
-            M.results[pkg_key] = { state = "error", message = "File not found or could not be removed." }
+        local removed = 0
+        if os.remove(dest) then removed = removed + 1 end
+        for _, dep in ipairs(PYTHON_DEPS) do
+            if os.remove(dir .. "\\" .. dep.file) then
+                removed = removed + 1
+            end
         end
+        M.results[pkg_key] = {
+            state   = "done",
+            message = string.format("Uninstalled. %d file(s) removed.", removed),
+        }
         return
     end
 
