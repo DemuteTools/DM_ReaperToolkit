@@ -1,6 +1,7 @@
 return {
     toolkit = {
         name        = "Demute Reaper Toolkit",
+        description = "",
         github_url  = "https://github.com/DemuteStudio/DM_ReaperToolkit",
         Website_url = "",
         youtube_url = "",
@@ -12,12 +13,14 @@ return {
         github_url  = "https://github.com/DemuteStudio/Waveform-Matcher",
         Website_url = "https://www.demute.studio/blog-post/waveform-matcher",
         youtube_url = "https://www.youtube.com/watch?v=MQsJCsyyIi4",
+        main_script = "WaveformMatcher.lua",
     },
     {
         name        = "Ambience Creator",
         reapack_url = "https://github.com/DemuteStudio/DM-Ambiance-Creator/raw/main/index.xml",
         github_url  = "https://github.com/DemuteStudio/DM-Ambiance-Creator",
         Website_url = "https://www.demute.studio/blog-post/ambiance-creator",
+        youtube_url = "https://www.youtube.com/watch?v=cdGw3aiLxr4",
     },
     {
         name        = "Reaper-Batch-Renamer",
@@ -31,6 +34,7 @@ return {
         reapack_url = "https://raw.githubusercontent.com/DemuteStudio/ReaHaptic/refs/heads/main/index.xml",
         github_url  = "https://github.com/DemuteStudio/ReaHaptic",
         Website_url = "https://www.demute.studio/blog-post/reahaptic",
+        youtube_url = "https://www.youtube.com/watch?v=1zfK4qoTbTk&t=442s",
         main_script = "ReaHaptic_Settings.lua",
     },
     {
@@ -53,6 +57,7 @@ return {
         drive_url   = "https://drive.google.com/file/d/1G_MDn5o8zMx9wggp-ZSwV3OfazwZ0nvq/view",
         github_url  = "None",
         Website_url = "https://www.demute.studio/blog-post/auto-voice-lines-edit-and-naming",
+        youtube_url = "https://www.youtube.com/watch?v=Zyzu3PFJTS8",
         main_script = "voiceutilities_detectitemtakes.py",
     }
 }}

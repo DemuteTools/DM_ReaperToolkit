@@ -367,12 +367,16 @@ local function DrawToolkitInfo()
 
     reaper.ImGui_Spacing(ctx)
 
-    -- Show toolkit README via documentation tab
-    Fetch.StartReadmeFetch(_toolkit_info)
-    local readme = Fetch.readme_cache[_toolkit_info.github_url] or "Loading..."
-
     reaper.ImGui_Dummy(ctx, 0, README_PAD_Y)
     reaper.ImGui_Indent(ctx, README_PAD_X)
+    if _toolkit_info.description and _toolkit_info.description ~= "" then
+        reaper.ImGui_TextWrapped(ctx, _toolkit_info.description)
+        reaper.ImGui_Spacing(ctx)
+    end
+
+    -- Show toolkit README
+    Fetch.StartReadmeFetch(_toolkit_info)
+    local readme = Fetch.readme_cache[_toolkit_info.github_url] or "Loading..."
     if readme == "Loading..." then
         reaper.ImGui_TextDisabled(ctx, "Loading...")
     else

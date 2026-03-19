@@ -59,7 +59,7 @@ local function GetScriptPath(pkg)
         if not _resource_path then
             _resource_path = reaper.GetResourcePath():gsub("/", "\\")
         end
-        return _resource_path .. "\\Scripts\\DM_DrivePackages\\" .. pkg.name .. "\\" .. pkg.main_script
+        return _resource_path .. "\\Scripts\\Demute_toolkit\\pythonScripts\\" .. pkg.main_script
     end
 
     local idx = _Fetch.index_cache[pkg.reapack_url]
