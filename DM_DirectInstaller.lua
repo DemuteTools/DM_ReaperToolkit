@@ -138,7 +138,7 @@ local function ParseIndex(xml)
                 cur_ver_idx = #rp_versions
 
             elseif tag_name == 'source' and cur_ver_idx and cur_rp_name and cur_cat
-                   and not cur_cat:find("^Common/") then
+                   and not cur_cat:find("^Common") then
                 local file_attr = tag:match('file="([^"]*)"')
                 local main_val  = tag:match('main="([^"]*)"')
                 local is_main   = main_val ~= nil and main_val ~= ""
