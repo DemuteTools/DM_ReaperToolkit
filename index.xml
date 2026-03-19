@@ -1,35 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <index version="1" name="Demute_toolkit">
-  <category name="">
-    <reapack name="DM_ReaperToolkit" type="script">
+  <category name="DM_ReaperToolkit">
+    <reapack name="DM_ReaperToolkit.lua" type="script">
       <version name="0.1.0-beta" author="Demute">
-        <!-- Toolkit scripts -->
-        <source main="main" file="DM_ReaperToolkit/DM_ReaperToolkit.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_ReaperToolkit.lua</source>
-        <source file="DM_ReaperToolkit/DM_Packages.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_Packages.lua</source>
-        <source file="DM_ReaperToolkit/DM_DirectInstaller.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_DirectInstaller.lua</source>
-        <source file="DM_ReaperToolkit/DM_AsyncFetch.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_AsyncFetch.lua</source>
-        <source file="DM_ReaperToolkit/DM_Markdown.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_Markdown.lua</source>
-        <source file="DM_ReaperToolkit/DM_PackageStatus.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_PackageStatus.lua</source>
-        <source file="DM_ReaperToolkit/DM_ToolkitFunctionsLibrary.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_ToolkitFunctionsLibrary.lua</source>
-        <source file="DM_ReaperToolkit/DM_UIHelperFunctions.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_UIHelperFunctions.lua</source>
-        <!-- Thumbnails -->
-        <source file="DM_ReaperToolkit/Resources/Thumbnails/Ambience Creator.jpg">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Ambience%20Creator.jpg</source>
-        <source file="DM_ReaperToolkit/Resources/Thumbnails/ReaHaptic.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/ReaHaptic.png</source>
-        <source file="DM_ReaperToolkit/Resources/Thumbnails/Reaper-Batch-Renamer.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Reaper-Batch-Renamer.png</source>
-        <source file="DM_ReaperToolkit/Resources/Thumbnails/Subproject_Manager.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Subproject_Manager.png</source>
-        <source file="DM_ReaperToolkit/Resources/Thumbnails/Waveform-Matcher.jpg">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Waveform-Matcher.jpg</source>
-        <!-- Common scripts -->
-        <source file="Common/Scripts/DM_Colors.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_Colors.lua</source>
-        <source file="Common/Scripts/DM_ImageUtils.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_ImageUtils.lua</source>
-        <source file="Common/Scripts/DM_Library.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_Library.lua</source>
-        <source file="Common/Scripts/DM_Settings.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_Settings.lua</source>
-        <source file="Common/Scripts/DM_StringUtils.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_StringUtils.lua</source>
-        <source file="Common/Scripts/DM_Theme.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_Theme.lua</source>
-        <source file="Common/Scripts/DM_UIHelpers.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_UIHelpers.lua</source>
-        <!-- Common resources -->
-        <source file="Common/Resources/Demute_Home_Logo.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Resources/Demute_Home_Logo.png</source>
-        <source file="Common/Resources/Icons/GithubIcon.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Resources/Icons/GithubIcon.png</source>
-        <source file="Common/Resources/Icons/android-icon-72x72.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Resources/Icons/android-icon-72x72.png</source>
+        <source main="main">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_ReaperToolkit.lua</source>
+        <source file="DM_Packages.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_Packages.lua</source>
+        <source file="DM_DirectInstaller.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_DirectInstaller.lua</source>
+        <source file="DM_AsyncFetch.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_AsyncFetch.lua</source>
+        <source file="DM_Markdown.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_Markdown.lua</source>
+        <source file="DM_PackageStatus.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_PackageStatus.lua</source>
+        <source file="DM_ToolkitFunctionsLibrary.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_ToolkitFunctionsLibrary.lua</source>
+        <source file="DM_UIHelperFunctions.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_UIHelperFunctions.lua</source>
+        <source file="Resources/Thumbnails/Ambience Creator.jpg">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Ambience%20Creator.jpg</source>
+        <source file="Resources/Thumbnails/ReaHaptic.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/ReaHaptic.png</source>
+        <source file="Resources/Thumbnails/Reaper-Batch-Renamer.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Reaper-Batch-Renamer.png</source>
+        <source file="Resources/Thumbnails/Subproject_Manager.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Subproject_Manager.png</source>
+        <source file="Resources/Thumbnails/Waveform-Matcher.jpg">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Waveform-Matcher.jpg</source>
+      </version>
+    </reapack>
+  </category>
+
+  <category name="Common">
+    <reapack name="DM_Common" type="script">
+      <version name="0.1.0-beta" author="Demute">
+        <source file="Scripts/DM_Colors.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_Colors.lua</source>
+        <source file="Scripts/DM_ImageUtils.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_ImageUtils.lua</source>
+        <source file="Scripts/DM_Library.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_Library.lua</source>
+        <source file="Scripts/DM_Settings.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_Settings.lua</source>
+        <source file="Scripts/DM_StringUtils.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_StringUtils.lua</source>
+        <source file="Scripts/DM_Theme.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_Theme.lua</source>
+        <source file="Scripts/DM_UIHelpers.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_UIHelpers.lua</source>
+        <source file="Resources/Demute_Home_Logo.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Resources/Demute_Home_Logo.png</source>
+        <source file="Resources/Icons/GithubIcon.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Resources/Icons/GithubIcon.png</source>
+        <source file="Resources/Icons/android-icon-72x72.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Resources/Icons/android-icon-72x72.png</source>
       </version>
     </reapack>
   </category>
