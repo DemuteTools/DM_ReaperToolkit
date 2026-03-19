@@ -14,8 +14,9 @@
         <source file="Resources/Thumbnails/Ambience Creator.jpg">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Ambience%20Creator.jpg</source>
         <source file="Resources/Thumbnails/ReaHaptic.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/ReaHaptic.png</source>
         <source file="Resources/Thumbnails/Reaper-Batch-Renamer.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Reaper-Batch-Renamer.png</source>
-        <source file="Resources/Thumbnails/Subproject_Manager.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Subproject_Manager.png</source>
+        <source file="Resources/Thumbnails/SubprojectManager.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/SubprojectManager.png</source>
         <source file="Resources/Thumbnails/Waveform-Matcher.jpg">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Waveform-Matcher.jpg</source>
+        <source file="Resources/Thumbnails/AssetVideoOverlay.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/AssetVideoOverlay.png</source>
         <!-- Common -->
         <source file="Common/Scripts/DM_Colors.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_Colors.lua</source>
         <source file="Common/Scripts/DM_ImageUtils.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_ImageUtils.lua</source>
