@@ -7,6 +7,21 @@ local _ctx, _font_big, _font_h2
 -- Parse state per key: { co=coroutine, tokens={}, status="parsing"|"done" }
 local _parse_state   = {}
 local LINES_PER_TICK = 100   -- lines processed per frame tick
+local LINK_COL       = 0xFFCC66FF  -- AABBGGRR: light gold for links
+local _scroll_target = nil         -- slug string to scroll to on next frame
+
+-- Convert heading text to a GitHub-style anchor slug
+local function to_slug(text)
+    return text:lower():gsub("[^%w%s%-]", ""):gsub("%s+", "-")
+end
+
+local function open_url(url)
+    if reaper.CF_ShellExecute then
+        reaper.CF_ShellExecute(url)
+    else
+        os.execute('start "" "' .. url .. '"')
+    end
+end
 
 function M.Init(ctx, font_big, font_h2)
     _ctx = ctx; _font_big = font_big; _font_h2 = font_h2
@@ -24,47 +39,87 @@ local function strip(s)
     return s
 end
 
--- Parse a string into an array of { t=string, bold=bool } spans.
--- Bold is **...** or __...__; everything else is stripped/kept as plain text.
+-- Parse a string into an array of { t=string, bold=bool, link=string|nil } spans.
+-- Bold is **...** or __...__; link is [text](url).
 local function parse_spans(s)
-    -- Strip non-bold markers up front
+    -- Strip image markers and code spans up front
     s = s:gsub("!%[.-%]%((.-)%)", "")
-    s = s:gsub("%[(.-)%]%((.-)%)", "%1")
     s = s:gsub("`(.-)`", "%1")
 
-    local spans = {}
-    local pos   = 1
+    -- First pass: split by links to preserve URLs
+    local chunks = {}  -- { text=string, link=string|nil }
+    local pos = 1
     while pos <= #s do
-        local b1, e1 = s:find("%*%*(.-)%*%*", pos)
-        local b2, e2 = s:find("__(.-)__",     pos)
-
-        local bs, be, is_star
-        if b1 and (not b2 or b1 < b2) then
-            bs, be, is_star = b1, e1, true
-        elseif b2 then
-            bs, be, is_star = b2, e2, false
-        end
-
-        if bs then
-            if bs > pos then
-                local pre = s:sub(pos, bs - 1):gsub("%*(.-)%*", "%1"):gsub("_(.-)_", "%1")
-                if pre ~= "" then spans[#spans + 1] = { t = pre, bold = false } end
-            end
-            local inner = is_star and s:match("%*%*(.-)%*%*", bs) or s:match("__(.-)__", bs)
-            inner = inner:gsub("%*(.-)%*", "%1"):gsub("_(.-)_", "%1")
-            if inner ~= "" then spans[#spans + 1] = { t = inner, bold = true } end
-            pos = be + 1
-        else
-            local rest = s:sub(pos):gsub("%*(.-)%*", "%1"):gsub("_(.-)_", "%1")
-            if rest ~= "" then spans[#spans + 1] = { t = rest, bold = false } end
+        local lb = s:find("[", pos, true)
+        if not lb then
+            chunks[#chunks + 1] = { text = s:sub(pos) }
             break
+        end
+        -- Find matching ](url)
+        local re = s:find("%]%(", lb + 1)
+        if not re then
+            chunks[#chunks + 1] = { text = s:sub(pos) }
+            break
+        end
+        local ue = s:find(")", re + 2, true)
+        if not ue then
+            chunks[#chunks + 1] = { text = s:sub(pos) }
+            break
+        end
+        if lb > pos then
+            chunks[#chunks + 1] = { text = s:sub(pos, lb - 1) }
+        end
+        local link_text = s:sub(lb + 1, re - 1)
+        local link_url  = s:sub(re + 2, ue - 1)
+        chunks[#chunks + 1] = { text = link_text, link = link_url }
+        pos = ue + 1
+    end
+
+    -- Second pass: parse bold within each chunk
+    local spans = {}
+    for _, chunk in ipairs(chunks) do
+        local cs = chunk.text
+        local cpos = 1
+        while cpos <= #cs do
+            local b1, e1 = cs:find("%*%*(.-)%*%*", cpos)
+            local b2, e2 = cs:find("__(.-)__",     cpos)
+
+            local bs, be, is_star
+            if b1 and (not b2 or b1 < b2) then
+                bs, be, is_star = b1, e1, true
+            elseif b2 then
+                bs, be, is_star = b2, e2, false
+            end
+
+            if bs then
+                if bs > cpos then
+                    local pre = cs:sub(cpos, bs - 1):gsub("%*(.-)%*", "%1"):gsub("_(.-)_", "%1")
+                    if pre ~= "" then
+                        spans[#spans + 1] = { t = pre, bold = false, link = chunk.link }
+                    end
+                end
+                local inner = is_star and cs:match("%*%*(.-)%*%*", bs) or cs:match("__(.-)__", bs)
+                inner = inner:gsub("%*(.-)%*", "%1"):gsub("_(.-)_", "%1")
+                if inner ~= "" then
+                    spans[#spans + 1] = { t = inner, bold = true, link = chunk.link }
+                end
+                cpos = be + 1
+            else
+                local rest = cs:sub(cpos):gsub("%*(.-)%*", "%1"):gsub("_(.-)_", "%1")
+                if rest ~= "" then
+                    spans[#spans + 1] = { t = rest, bold = false, link = chunk.link }
+                end
+                break
+            end
         end
     end
     return #spans > 0 and spans or { { t = s, bold = false } }
 end
 
-local function spans_has_bold(spans)
-    for _, sp in ipairs(spans) do if sp.bold then return true end end
+local function spans_need_custom(spans)
+    for _, sp in ipairs(spans) do
+        if sp.bold or sp.link then return true end
+    end
     return false
 end
 
@@ -92,10 +147,9 @@ local function draw_bold(text)
     reaper.ImGui_Text(_ctx, text)
 end
 
--- Render spans word-by-word, measuring each word to decide whether it fits on
--- the current line or needs to wrap. Preserves proper word-wrap for bold text.
+-- Render spans word-by-word, handling bold and clickable links.
 local function render_word_wrapped_spans(spans)
-    if not spans_has_bold(spans) then
+    if not spans_need_custom(spans) then
         reaper.ImGui_TextWrapped(_ctx, spans_to_text(spans))
         return
     end
@@ -107,7 +161,7 @@ local function render_word_wrapped_spans(spans)
     local words = {}
     for _, sp in ipairs(spans) do
         for word in sp.t:gmatch("%S+") do
-            words[#words + 1] = { w = word, bold = sp.bold }
+            words[#words + 1] = { w = word, bold = sp.bold, link = sp.link }
         end
     end
     if #words == 0 then return end
@@ -126,7 +180,21 @@ local function render_word_wrapped_spans(spans)
             cur_x = left_x  -- wrapped: next word starts at left margin
         end
 
-        if wt.bold then
+        if wt.link then
+            reaper.ImGui_PushStyleColor(_ctx, reaper.ImGui_Col_Text(), LINK_COL)
+            reaper.ImGui_Text(_ctx, wt.w)
+            reaper.ImGui_PopStyleColor(_ctx)
+            if reaper.ImGui_IsItemHovered(_ctx) then
+                reaper.ImGui_SetMouseCursor(_ctx, reaper.ImGui_MouseCursor_Hand())
+                if reaper.ImGui_IsItemClicked(_ctx) then
+                    if wt.link:match("^https?://") then
+                        open_url(wt.link)
+                    elseif wt.link:match("^#") then
+                        _scroll_target = wt.link:sub(2)
+                    end
+                end
+            end
+        elseif wt.bold then
             draw_bold(wt.w)
         else
             reaper.ImGui_Text(_ctx, wt.w)
@@ -144,6 +212,7 @@ function M.StartParse(key, text, base_raw_url)
 
     local co = coroutine.create(function()
         local in_code    = false
+        local in_table   = nil   -- nil or { k="tbl", headers={}, rows={}, ncols=N }
         local line_count = 0
 
         for line in (text .. "\n"):gmatch("([^\n]*)\n") do
@@ -151,12 +220,22 @@ function M.StartParse(key, text, base_raw_url)
             -- Code fence
             if line:match("^```") then
                 in_code = not in_code
+                if in_table then
+                    tokens[#tokens + 1] = in_table
+                    in_table = nil
+                end
                 tokens[#tokens + 1] = { k = "sp" }
                 goto continue
             end
             if in_code then
                 tokens[#tokens + 1] = { k = "dis", t = "  " .. line }
                 goto continue
+            end
+
+            -- Flush table if the current line is not a table row
+            if in_table and not line:match("^|") then
+                tokens[#tokens + 1] = in_table
+                in_table = nil
             end
 
             -- Remaining cases all declare locals. Wrap in do..end so that the
@@ -182,17 +261,22 @@ function M.StartParse(key, text, base_raw_url)
                 -- Table separator  |---|---|  → skip
                 if line:match("^|[%s%-:|]+|") then goto continue end
 
-                -- Table data row  |cell|cell|
+                -- Table row  |cell|cell|
                 do
                     local trow = line:match("^|(.+)|%s*$")
                     if trow then
                         local cells = {}
                         for cell in trow:gmatch("[^|]+") do
-                            local t = cell:match("^%s*(.-)%s*$")
-                            if t ~= "" then cells[#cells + 1] = strip(t) end
+                            cells[#cells + 1] = cell:match("^%s*(.-)%s*$") or ""
                         end
-                        if #cells > 0 then
-                            tokens[#tokens + 1] = { k = "dis", t = table.concat(cells, "   ") }
+                        if not in_table then
+                            in_table = { k = "tbl", headers = cells,
+                                         rows = {}, ncols = #cells }
+                        else
+                            while #cells < in_table.ncols do
+                                cells[#cells + 1] = ""
+                            end
+                            in_table.rows[#in_table.rows + 1] = cells
                         end
                         goto continue
                     end
@@ -279,6 +363,10 @@ function M.StartParse(key, text, base_raw_url)
                 coroutine.yield()
             end
         end
+        -- Flush any pending table at end of input
+        if in_table then
+            tokens[#tokens + 1] = in_table
+        end
     end)
 
     _parse_state[key] = { co = co, tokens = tokens, status = "parsing" }
@@ -326,19 +414,26 @@ function M.Render(text, base_raw_url, image_cache, queue_fn)
 
         if     k == "sp"  then reaper.ImGui_Spacing(_ctx)
         elseif k == "sep" then draw_thick_separator()
-        elseif k == "h1"  then
-            reaper.ImGui_PushFont(_ctx, _font_big, 24)
-            reaper.ImGui_Text(_ctx, tok.t)
-            reaper.ImGui_PopFont(_ctx)
-        elseif k == "h2"  then
-            reaper.ImGui_PushFont(_ctx, _font_h2, 18)
-            reaper.ImGui_Text(_ctx, tok.t)
-            reaper.ImGui_PopFont(_ctx)
-            reaper.ImGui_Separator(_ctx)
-        elseif k == "h3"  then
-            reaper.ImGui_Indent(_ctx, 4)
-            reaper.ImGui_Text(_ctx, tok.t)
-            reaper.ImGui_Unindent(_ctx, 4)
+        elseif k == "h1" or k == "h2" or k == "h3" then
+            -- Scroll here if this heading is the anchor target
+            if _scroll_target and to_slug(tok.t) == _scroll_target then
+                reaper.ImGui_SetScrollHereY(_ctx, 0.0)
+                _scroll_target = nil
+            end
+            if k == "h1" then
+                reaper.ImGui_PushFont(_ctx, _font_big, 24)
+                reaper.ImGui_Text(_ctx, tok.t)
+                reaper.ImGui_PopFont(_ctx)
+            elseif k == "h2" then
+                reaper.ImGui_PushFont(_ctx, _font_h2, 18)
+                reaper.ImGui_Text(_ctx, tok.t)
+                reaper.ImGui_PopFont(_ctx)
+                reaper.ImGui_Separator(_ctx)
+            else
+                reaper.ImGui_Indent(_ctx, 4)
+                reaper.ImGui_Text(_ctx, tok.t)
+                reaper.ImGui_Unindent(_ctx, 4)
+            end
         elseif k == "dis" then
             reaper.ImGui_TextDisabled(_ctx, tok.t)
         elseif k == "par" then
@@ -353,6 +448,29 @@ function M.Render(text, base_raw_url, image_cache, queue_fn)
             reaper.ImGui_SameLine(_ctx, 0, 0)
             render_word_wrapped_spans(tok.spans)
             reaper.ImGui_Unindent(_ctx, tok.indent)
+        elseif k == "tbl" then
+            local flags = reaper.ImGui_TableFlags_Borders()
+                        + reaper.ImGui_TableFlags_RowBg()
+                        + reaper.ImGui_TableFlags_SizingStretchProp()
+            if reaper.ImGui_BeginTable(_ctx, "mdtbl" .. tostring(tok), tok.ncols, flags) then
+                for _, hdr in ipairs(tok.headers) do
+                    reaper.ImGui_TableSetupColumn(_ctx, strip(hdr))
+                end
+                reaper.ImGui_TableHeadersRow(_ctx)
+                for _, row in ipairs(tok.rows) do
+                    reaper.ImGui_TableNextRow(_ctx)
+                    for ci = 1, tok.ncols do
+                        reaper.ImGui_TableSetColumnIndex(_ctx, ci - 1)
+                        local spans = parse_spans(row[ci] or "")
+                        if spans_need_custom(spans) then
+                            render_word_wrapped_spans(spans)
+                        else
+                            reaper.ImGui_TextWrapped(_ctx, spans_to_text(spans))
+                        end
+                    end
+                end
+                reaper.ImGui_EndTable(_ctx)
+            end
         elseif k == "img" then
             local cached = image_cache[tok.url]
             if not cached then

@@ -124,10 +124,44 @@ local function StartBatchImageFetch()
     while #image_queue > 0 do
         local url = table.remove(image_queue, 1)
         if M.image_cache[url] and M.image_cache[url].status == "queued" then
-            local ext  = url:match("%.(%a+)$") or "png"
-            local path = _tmp .. "\\dm_tk_img_" .. HashURL(url) .. "." .. ext
+            local path = _tmp .. "\\dm_tk_img_" .. HashURL(url) .. ".png"
             M.image_cache[url] = { status = "downloading", path = path }
-            f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', url, path))
+            local dl_path = path:gsub("%.png$", ".dl")
+            f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', url, dl_path))
+            -- If already PNG or JPEG just move; otherwise convert to PNG
+            -- via WPF/WIC (supports WebP natively on Windows 10/11).
+            f:write(string.format(
+                'if (Test-Path "%s") {\r\n'
+                .. '  $b = [byte[]](Get-Content "%s" -Encoding Byte -TotalCount 4)\r\n'
+                .. '  if (($b[0] -eq 0x89 -and $b[1] -eq 0x50) -or'
+                .. '      ($b[0] -eq 0xFF -and $b[1] -eq 0xD8)) {\r\n'
+                .. '    Move-Item -Force "%s" "%s"\r\n'
+                .. '  } else {\r\n'
+                .. '    try {\r\n'
+                .. '      Add-Type -AssemblyName PresentationCore\r\n'
+                .. '      $s = [System.IO.File]::OpenRead("%s")\r\n'
+                .. '      $dec = [System.Windows.Media.Imaging.BitmapDecoder]::Create('
+                .. '$s,'
+                .. '[System.Windows.Media.Imaging.BitmapCreateOptions]::None,'
+                .. '[System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad)\r\n'
+                .. '      $enc = New-Object System.Windows.Media.Imaging.PngBitmapEncoder\r\n'
+                .. '      $enc.Frames.Add('
+                .. '[System.Windows.Media.Imaging.BitmapFrame]::Create($dec.Frames[0]))\r\n'
+                .. '      $out = [System.IO.File]::Create("%s")\r\n'
+                .. '      $enc.Save($out)\r\n'
+                .. '      $out.Close(); $s.Close()\r\n'
+                .. '      Remove-Item -Force "%s"\r\n'
+                .. '    } catch { Move-Item -Force "%s" "%s" }\r\n'
+                .. '  }\r\n'
+                .. '}\r\n',
+                dl_path,       -- Test-Path
+                dl_path,       -- Get-Content header
+                dl_path, path, -- PNG/JPEG: move directly
+                dl_path,       -- OpenRead source
+                path,          -- Create PNG output
+                dl_path,       -- Remove temp
+                dl_path, path  -- catch fallback: move as-is
+            ))
             items[#items + 1] = { url = url, path = path }
         end
     end
@@ -160,19 +194,45 @@ function M.CheckImageFetch()
 
     for _, item in ipairs(active_imgs) do
         local url, path = item.url, item.path
-        local t_png = reaper.time_precise()
-        local iw, ih = GetImageSize(path)
-        reaper.ShowConsoleMsg(string.format("[PROFILE] GetPNGSize (%dx%d): %.2f ms\n",
-            iw or 0, ih or 0, (reaper.time_precise() - t_png) * 1000))
-        local t_img = reaper.time_precise()
-        local ok, img = pcall(reaper.ImGui_CreateImage, path)
-        reaper.ShowConsoleMsg(string.format("[PROFILE] ImGui_CreateImage: %.2f ms  ok=%s\n",
-            (reaper.time_precise() - t_img) * 1000, tostring(ok)))
-        if ok and img then
-            reaper.ImGui_Attach(_ctx, img)
-            M.image_cache[url] = { status = "ready", img = img, path = path, w = iw, h = ih }
-        else
+        local dl_path = path:gsub("%.png$", ".dl")
+        local png_exists = io.open(path, "rb") ~= nil
+        local dl_exists  = io.open(dl_path, "rb") ~= nil
+        reaper.ShowConsoleMsg(string.format(
+            "[IMG DEBUG] url=%s\n  png=%s exists=%s\n  dl=%s exists=%s\n",
+            url, path, tostring(png_exists), dl_path, tostring(dl_exists)))
+        if dl_exists and not png_exists then
+            local hf = io.open(dl_path, "rb")
+            if hf then
+                local hdr = hf:read(16) or ""
+                hf:close()
+                local hex = {}
+                for i = 1, math.min(#hdr, 16) do
+                    hex[#hex + 1] = string.format("%02X", hdr:byte(i))
+                end
+                reaper.ShowConsoleMsg(string.format(
+                    "[IMG DEBUG] .dl header bytes: %s\n", table.concat(hex, " ")))
+            end
+        end
+        if not png_exists then
+            reaper.ShowConsoleMsg("[IMG DEBUG] Skipping — .png file not found\n")
             M.image_cache[url] = { status = "error" }
+        else
+            local t_png = reaper.time_precise()
+            local iw, ih = GetImageSize(path)
+            reaper.ShowConsoleMsg(string.format("[PROFILE] GetPNGSize (%dx%d): %.2f ms\n",
+                iw or 0, ih or 0, (reaper.time_precise() - t_png) * 1000))
+            local t_img = reaper.time_precise()
+            local ok, img = pcall(reaper.ImGui_CreateImage, path)
+            reaper.ShowConsoleMsg(string.format(
+                "[PROFILE] ImGui_CreateImage: %.2f ms  ok=%s  err=%s\n",
+                (reaper.time_precise() - t_img) * 1000, tostring(ok),
+                ok and "none" or tostring(img)))
+            if ok and img then
+                reaper.ImGui_Attach(_ctx, img)
+                M.image_cache[url] = { status = "ready", img = img, path = path, w = iw, h = ih }
+            else
+                M.image_cache[url] = { status = "error" }
+            end
         end
     end
 

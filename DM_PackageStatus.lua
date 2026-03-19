@@ -53,6 +53,15 @@ local function FileExists(path)
 end
 
 local function GetScriptPath(pkg)
+    -- Drive package: path is computed directly, no index needed
+    if type(pkg.drive_url) == "string" and pkg.reapack_url == "None" then
+        if not pkg.main_script then return nil end
+        if not _resource_path then
+            _resource_path = reaper.GetResourcePath():gsub("/", "\\")
+        end
+        return _resource_path .. "\\Scripts\\DM_DrivePackages\\" .. pkg.name .. "\\" .. pkg.main_script
+    end
+
     local idx = _Fetch.index_cache[pkg.reapack_url]
     if type(idx) ~= "table" or idx.error then return nil end
     if not _resource_path then

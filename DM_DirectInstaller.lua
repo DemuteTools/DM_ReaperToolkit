@@ -28,8 +28,8 @@ local TMP_DL_CFG   = _tmp .. "\\dm_inst_download.cfg"   -- curl parallel config 
 
 local POLL        = 0.05  -- seconds between sentinel checks
 local _last_check = 0
-local _pkg        = nil   -- package being installed
 local _files      = nil   -- [{url, dest, is_main, name}] after index parse
+local _pkg_key    = nil   -- M.results / M.active_url key for current install
 
 -- ── Helpers ───────────────────────────────────────────────────────────────────
 local function EnsureVBS()
@@ -44,6 +44,15 @@ end
 local function LaunchBg(ps1_path)
     reaper.ExecProcess('wscript.exe //B //NoLogo "' .. _vbs .. '" "' .. ps1_path .. '"', -1)
 end
+
+local function IsDrivePkg(pkg)
+    return type(pkg.drive_url) == "string" and pkg.reapack_url == "None"
+end
+
+local function DriveDest(pkg)
+    return _res .. "\\Scripts\\DM_DrivePackages\\" .. pkg.name .. "\\" .. pkg.main_script
+end
+M.DriveDest = DriveDest
 
 local function VersionGT(a, b)
     local function nums(v)
@@ -128,7 +137,8 @@ local function ParseIndex(xml)
                 rp_versions[#rp_versions + 1] = { name = vname, sources = {} }
                 cur_ver_idx = #rp_versions
 
-            elseif tag_name == 'source' and cur_ver_idx and cur_rp_name and cur_cat then
+            elseif tag_name == 'source' and cur_ver_idx and cur_rp_name and cur_cat
+                   and not cur_cat:find("^Common/") then
                 local file_attr = tag:match('file="([^"]*)"')
                 local main_val  = tag:match('main="([^"]*)"')
                 local is_main   = main_val ~= nil and main_val ~= ""
@@ -165,17 +175,86 @@ end
 
 -- ── Public API ────────────────────────────────────────────────────────────────
 
--- Start a direct install for the given package (pkg.reapack_url required).
+-- Start a direct install for the given package.
+-- For reapack packages (reapack_url set): fetches index.xml first.
+-- For drive packages (drive_url set, reapack_url == "None"): downloads directly.
 -- Safe to call when state is "idle", "done", or "error".
 function M.StartInstall(pkg)
     if M.state == "fetching_index" or M.state == "downloading" then return end
 
-    _pkg         = pkg
-    _files       = nil
-    M.log        = {}
-    M.active_url = pkg.reapack_url
-
+    _files = nil
+    M.log  = {}
     EnsureVBS()
+
+    -- ── Drive package: single file, skip index fetch ──────────────────────────
+    if IsDrivePkg(pkg) then
+        _pkg_key     = pkg.drive_url
+        M.active_url = _pkg_key
+
+        if not pkg.main_script then
+            M.state   = "error"
+            M.message = "drive_url package is missing main_script field."
+            M.results[_pkg_key] = { state = "error", message = M.message }
+            M.active_url = nil
+            return
+        end
+
+        local file_id = pkg.drive_url:match('/file/d/([^/?#]+)')
+        if not file_id then
+            M.state   = "error"
+            M.message = "Could not extract file ID from drive_url."
+            M.results[_pkg_key] = { state = "error", message = M.message }
+            M.active_url = nil
+            return
+        end
+
+        local dl_url   = "https://drive.usercontent.google.com/download?id=" .. file_id .. "&export=download&confirm=t"
+        local dest     = DriveDest(pkg)
+        local dest_fwd = dest:gsub('\\', '/')
+        local dir      = dest:match('^(.*[/\\])')
+        local ext      = pkg.main_script:match('%.(%w+)$') or ""
+        local is_main  = ext == "lua" or ext == "py"
+
+        _files = {{ url = dl_url, dest = dest, is_main = is_main, name = pkg.name }}
+
+        reaper.ShowConsoleMsg("[DM_Installer] Drive download starting\n")
+        reaper.ShowConsoleMsg("[DM_Installer] URL: " .. dl_url .. "\n")
+        reaper.ShowConsoleMsg("[DM_Installer] Dest: " .. dest_fwd .. "\n")
+
+        os.remove(TMP_DL_DONE)
+        local err_file = _tmp .. "\\dm_inst_curl_err.txt"
+        local df = io.open(TMP_DL_PS1, "w")
+        if not df then
+            M.state   = "error"
+            M.message = "Could not write download script."
+            M.results[_pkg_key] = { state = "error", message = M.message }
+            M.active_url = nil
+            return
+        end
+        if dir then
+            df:write(string.format('New-Item -ItemType Directory -Force -Path "%s" | Out-Null\r\n', dir))
+        end
+        local err_fwd = err_file:gsub('\\', '/')
+        -- Store URL in a PS variable to avoid any quoting issues with & in the URL
+        df:write(string.format('$url = "%s"\r\n', dl_url))
+        df:write(string.format('$out = "%s"\r\n', dest_fwd))
+        df:write('$err = & curl.exe -SL4 $url -o $out 2>&1\r\n')
+        df:write(string.format(
+            '$err | Out-File -FilePath "%s" -Encoding ascii\r\n', err_fwd))
+        df:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', TMP_DL_DONE))
+        df:close()
+
+        LaunchBg(TMP_DL_PS1)
+        M.state     = "downloading"
+        M.message   = "Downloading..."
+        _last_check = 0
+        return
+    end
+
+    -- ── Reapack package: fetch index XML first ────────────────────────────────
+    _pkg_key     = pkg.reapack_url
+    M.active_url = _pkg_key
+
     os.remove(TMP_IDX_TXT)
     os.remove(TMP_IDX_DONE)
 
@@ -183,7 +262,7 @@ function M.StartInstall(pkg)
     if not f then
         M.state   = "error"
         M.message = "Could not write temp PS1 script."
-        M.results[_pkg.reapack_url] = { state = "error", message = M.message }
+        M.results[_pkg_key] = { state = "error", message = M.message }
         M.active_url = nil
         return
     end
@@ -222,7 +301,7 @@ function M.Tick()
         if xml == "" then
             M.state   = "error"
             M.message = "Failed to download index XML (no content)."
-            M.results[_pkg.reapack_url] = { state = "error", message = M.message }
+            M.results[_pkg_key] = { state = "error", message = M.message }
             M.active_url = nil
             return
         end
@@ -231,7 +310,7 @@ function M.Tick()
         if not idx_name then
             M.state   = "error"
             M.message = "Failed to parse index XML: " .. (files or "unknown error")
-            M.results[_pkg.reapack_url] = { state = "error", message = M.message }
+            M.results[_pkg_key] = { state = "error", message = M.message }
             M.active_url = nil
             return
         end
@@ -250,7 +329,7 @@ function M.Tick()
         if not cf then
             M.state   = "error"
             M.message = "Could not write curl config file."
-            M.results[_pkg.reapack_url] = { state = "error", message = M.message }
+            M.results[_pkg_key] = { state = "error", message = M.message }
             M.active_url = nil
             return
         end
@@ -268,7 +347,7 @@ function M.Tick()
         if not df then
             M.state   = "error"
             M.message = "Could not write download script."
-            M.results[_pkg.reapack_url] = { state = "error", message = M.message }
+            M.results[_pkg_key] = { state = "error", message = M.message }
             M.active_url = nil
             return
         end
@@ -304,6 +383,34 @@ function M.Tick()
         os.remove(TMP_DL_PS1)
         os.remove(TMP_DL_CFG)
 
+        -- Debug: log curl stderr to REAPER console
+        local err_file = _tmp .. "\\dm_inst_curl_err.txt"
+        local ef = io.open(err_file, "r")
+        if ef then
+            local curl_err = ef:read("*a") or ""
+            ef:close()
+            reaper.ShowConsoleMsg("[DM_Installer] curl stderr:\n" .. curl_err .. "\n")
+        else
+            reaper.ShowConsoleMsg("[DM_Installer] No curl stderr file found.\n")
+        end
+
+        -- Debug: log downloaded file info to REAPER console
+        reaper.ShowConsoleMsg("[DM_Installer] Download complete. Checking files:\n")
+        for _, entry in ipairs(_files) do
+            local fh = io.open(entry.dest, "r")
+            if fh then
+                local head = fh:read(200) or ""
+                local size = fh:seek("end") or 0
+                fh:close()
+                reaper.ShowConsoleMsg(string.format(
+                    "  [OK] %s (%d bytes)\n  First 200 chars: %s\n",
+                    entry.dest, size, head:gsub("\n", "\\n")))
+            else
+                reaper.ShowConsoleMsg(string.format(
+                    "  [MISSING] %s — file does not exist!\n", entry.dest))
+            end
+        end
+
         -- Register REAPER actions for all main scripts
         local registered = 0
         for _, entry in ipairs(_files) do
@@ -321,17 +428,32 @@ function M.Tick()
         M.state   = "done"
         M.message = string.format(
             "Done. %d file(s) installed, %d action(s) registered.", #_files, registered)
-        M.results[_pkg.reapack_url] = { state = "done", message = M.message }
+        M.results[_pkg_key] = { state = "done", message = M.message }
         M.active_url = nil
     end
 end
 
 -- Synchronously remove all files installed for a package and unregister their REAPER actions.
--- index_name: the <index name="..."> value, available via Fetch.index_cache[pkg.reapack_url].index_name.
+-- For reapack packages, index_name is the <index name="..."> value from the index cache.
+-- For drive packages (reapack_url == "None"), index_name is ignored.
 function M.StartUninstall(pkg, index_name)
     if M.state == "fetching_index" or M.state == "downloading" then return end
 
-    -- Find the cached index XML (written by DirectInstaller, or ReaPack's cache as fallback)
+    -- ── Drive package: delete single known file ───────────────────────────────
+    if IsDrivePkg(pkg) then
+        local pkg_key = pkg.drive_url
+        local dest    = DriveDest(pkg)
+        reaper.AddRemoveReaScript(false, 0, dest, true)
+        if os.remove(dest) then
+            M.results[pkg_key] = { state = "done", message = "Uninstalled." }
+        else
+            M.results[pkg_key] = { state = "error", message = "File not found or could not be removed." }
+        end
+        return
+    end
+
+    -- ── Reapack package: reconstruct file list from cached index XML ──────────
+    local pkg_key   = pkg.reapack_url
     local dm_cache  = _res .. "\\Scripts\\DM_ReaperToolkit\\cache\\" .. index_name .. ".xml"
     local rp_cache  = _res .. "\\ReaPack\\cache\\" .. index_name .. ".xml"
     local cache_xml = nil
@@ -341,17 +463,13 @@ function M.StartUninstall(pkg, index_name)
     end
 
     if not cache_xml then
-        M.results[pkg.reapack_url] = {
-            state = "error", message = "Cannot find cached index; try reinstalling first.",
-        }
+        M.results[pkg_key] = { state = "error", message = "Cannot find cached index; try reinstalling first." }
         return
     end
 
     local idx_name, files = ParseIndex(cache_xml)
     if not idx_name then
-        M.results[pkg.reapack_url] = {
-            state = "error", message = "Failed to parse index for uninstall.",
-        }
+        M.results[pkg_key] = { state = "error", message = "Failed to parse index for uninstall." }
         return
     end
 
@@ -366,7 +484,7 @@ function M.StartUninstall(pkg, index_name)
     end
     os.remove(dm_cache)  -- clear DM version cache so status checks reflect the removal
 
-    M.results[pkg.reapack_url] = {
+    M.results[pkg_key] = {
         state   = "done",
         message = string.format("Uninstalled. %d file(s) removed, %d action(s) unregistered.", removed, unreg),
     }
@@ -374,13 +492,13 @@ end
 
 -- Reset to idle so the user can retry or install a different package.
 function M.Reset()
-    if _pkg then M.results[_pkg.reapack_url] = nil end
+    if _pkg_key then M.results[_pkg_key] = nil end
     M.state      = "idle"
     M.message    = ""
     M.log        = {}
     M.active_url = nil
-    _pkg         = nil
     _files       = nil
+    _pkg_key     = nil
 end
 
 return M
