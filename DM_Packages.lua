@@ -41,11 +41,11 @@ return {
         main_script = "DM_SubprojectManager.lua",
     },
     {
-        name        = "Voice Rec Session Manager",
+        name        = "Auto Voice Lines Edit and Naming",
         reapack_url = "None",
-        drive_url   = "https://drive.google.com/file/d/1cy-UQQpIew9pl1k1aNSkr4VxI0aGymzR/view",
+        drive_url   = "https://drive.google.com/file/d/1G_MDn5o8zMx9wggp-ZSwV3OfazwZ0nvq/view",
         github_url  = "None",
-        Website_url = "https://www.demute.studio/blog-post/voice-rec-session-manager",
-        main_script = "voiceutilities_csvimporter.py",
+        Website_url = "https://www.demute.studio/blog-post/auto-voice-lines-edit-and-naming",
+        main_script = "voiceutilities_detectitemtakes.py",
     }
 }
