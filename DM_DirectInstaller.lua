@@ -143,7 +143,7 @@ local function ParseIndex(xml)
                 local is_main   = main_val ~= nil and main_val ~= ""
 
                 -- Skip Common files (installed by toolkit already)
-                local skip = cur_cat:find("^Common")
+                local skip = file_attr and file_attr:find("^Common/")
 
                 -- URL is the text content between <source ...> and </source>
                 local url_s, url_e = xml:find('</source>', pos, true)

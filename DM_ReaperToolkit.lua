@@ -12,7 +12,7 @@ local PkgStatus       = dofile(_dir .. "DM_PackageStatus.lua")
 local DirectInstaller = dofile(_dir .. "DM_DirectInstaller.lua")
 local UI              = dofile(_dir .. "DM_UIHelperFunctions.lua")
 
-local DEMUTE_ROOT = _dir:match("^(.*[/\\])[^/\\]+[/\\]$")
+local DEMUTE_ROOT = _dir
 local COMMON      = DEMUTE_ROOT .. "Common/Scripts/"
 dofile(COMMON .. "DM_Theme.lua")
 
