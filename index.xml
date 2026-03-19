@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<index version="1" name="Demute">
+<index version="1" name="DM_ReaperToolkit">
   <!-- ── DM_ReaperToolkit ────────────────────────────────────────────────────── -->
   <category name="DM_ReaperToolkit">
     <reapack name="DM_ReaperToolkit.lua" type="script">
