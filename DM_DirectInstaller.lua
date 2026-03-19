@@ -137,25 +137,29 @@ local function ParseIndex(xml)
                 rp_versions[#rp_versions + 1] = { name = vname, sources = {} }
                 cur_ver_idx = #rp_versions
 
-            elseif tag_name == 'source' and cur_ver_idx and cur_rp_name and cur_cat
-                   and not cur_cat:find("^Common") then
+            elseif tag_name == 'source' and cur_ver_idx and cur_rp_name and cur_cat then
                 local file_attr = tag:match('file="([^"]*)"')
                 local main_val  = tag:match('main="([^"]*)"')
                 local is_main   = main_val ~= nil and main_val ~= ""
+
+                -- Skip Common files (installed by toolkit already)
+                local skip = file_attr and file_attr:find("^Common/")
 
                 -- URL is the text content between <source ...> and </source>
                 local url_s, url_e = xml:find('</source>', pos, true)
                 local url = url_s and xml:sub(pos, url_s - 1):match('^%s*(.-)%s*$') or ""
                 if url_s then pos = url_e + 1 end
 
-                if url ~= "" then
+                if url ~= "" and not skip then
                     local rel  = (file_attr or cur_rp_name):gsub('/', '\\')
                     local dest
                     if cur_rp_type == 'data' then
                         dest = _res .. '\\' .. rel
-                    else
+                    elseif cur_cat ~= "" then
                         dest = _res .. '\\Scripts\\' .. index_name .. '\\'
                             .. cur_cat:gsub('/', '\\') .. '\\' .. rel
+                    else
+                        dest = _res .. '\\Scripts\\' .. index_name .. '\\' .. rel
                     end
                     local src_list = rp_versions[cur_ver_idx].sources
                     src_list[#src_list + 1] = {
