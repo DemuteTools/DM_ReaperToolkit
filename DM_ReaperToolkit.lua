@@ -550,7 +550,19 @@ local function DrawDescriptionTab()
     reaper.ImGui_Dummy(ctx, 0, README_PAD_Y)
     reaper.ImGui_Indent(ctx, README_PAD_X)
     DrawYouTubeThumbnail()
-    reaper.ImGui_TextWrapped(ctx, selected.description or "No description yet.")
+
+    -- Fetch and render description markdown from the toolkit repo
+    Fetch.StartDescFetch(selected)
+    local desc = Fetch.desc_cache[selected.name]
+    if desc == "Loading..." or desc == "queued" then
+        reaper.ImGui_TextDisabled(ctx, "Loading...")
+    elseif desc and desc ~= "" then
+        local base_raw_url = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Descriptions/"
+        MD.Render(desc, base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
+    else
+        reaper.ImGui_TextWrapped(ctx, "No description yet.")
+    end
+
     reaper.ImGui_Unindent(ctx, README_PAD_X)
     reaper.ImGui_EndTabItem(ctx)
 end
@@ -784,6 +796,10 @@ local function loop()
     _t = reaper.time_precise()
     Fetch.CheckPendingIndexFetch()
     _prof("CheckPendingIndexFetch", _t)
+
+    _t = reaper.time_precise()
+    Fetch.CheckPendingDescFetch()
+    _prof("CheckPendingDescFetch", _t)
 
     _t = reaper.time_precise()
     MD.TickParse()

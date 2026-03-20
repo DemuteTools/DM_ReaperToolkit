@@ -13,21 +13,28 @@ local TMP_VBS      = _tmp .. "\\dm_tk_launcher.vbs"
 local TMP_IDX_TXT  = _tmp .. "\\dm_tk_index.txt"
 local TMP_IDX_DONE = _tmp .. "\\dm_tk_index.done"
 local TMP_IDX_BAT  = _tmp .. "\\dm_tk_indexfetch.ps1"
+local TMP_DESC_TXT  = _tmp .. "\\dm_tk_desc.txt"
+local TMP_DESC_DONE = _tmp .. "\\dm_tk_desc.done"
+local TMP_DESC_BAT  = _tmp .. "\\dm_tk_descfetch.ps1"
 
 M.readme_cache = {}   -- key=github_url: string content or "Loading..."
 M.image_cache  = {}   -- key=url: { status, path, img }
 M.index_cache  = {}   -- key=reapack_url: "queued"/"Loading..."/{ category, name }/{ error=true }
+M.desc_cache   = {}   -- key=pkg.name: string markdown content or "Loading..."
 
 local image_queue       = {}   -- URLs waiting to be downloaded
 local active_imgs       = nil  -- array of {url,path} for the current batch, or nil
 local pending_fetch     = nil  -- package whose README is being fetched
 local index_queue       = {}   -- packages waiting for index XML fetch
 local pending_index     = nil  -- package whose index is being fetched
+local desc_queue        = {}   -- packages waiting for description fetch
+local pending_desc      = nil  -- package whose description is being fetched
 
 local POLL_INTERVAL     = 0.1   -- seconds between sentinel file checks
 local _fetch_last_check = 0
 local _img_last_check   = 0
 local _index_last_check = 0
+local _desc_last_check  = 0
 
 -- Launch a ps1 script as a hidden background process via wscript.exe (GUI subsystem = no console window).
 local function launch_bg(ps1_path)
@@ -341,6 +348,67 @@ function M.CheckPendingIndexFetch()
     os.remove(TMP_IDX_BAT)
     pending_index = nil
     StartNextIndexFetch()
+end
+
+-- Description markdown fetch (from Resources/Descriptions/{name}.md in the toolkit repo)
+local DESC_RAW_BASE = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Descriptions/"
+
+local function StartNextDescFetch()
+    if pending_desc or #desc_queue == 0 then return end
+    local pkg = table.remove(desc_queue, 1)
+    M.desc_cache[pkg.name] = "Loading..."
+    os.remove(TMP_DESC_DONE)
+    os.remove(TMP_DESC_TXT)
+
+    local url = DESC_RAW_BASE .. pkg.name:gsub(" ", "%%20") .. ".md"
+
+    local f = io.open(TMP_DESC_BAT, "w")
+    if not f then
+        M.desc_cache[pkg.name] = ""
+        StartNextDescFetch()
+        return
+    end
+    f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', url, TMP_DESC_TXT))
+    f:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', TMP_DESC_DONE))
+    f:close()
+
+    launch_bg(TMP_DESC_BAT)
+    pending_desc = pkg
+end
+
+function M.StartDescFetch(pkg)
+    if M.desc_cache[pkg.name] then return end
+    M.desc_cache[pkg.name] = "queued"
+    desc_queue[#desc_queue + 1] = pkg
+    StartNextDescFetch()
+end
+
+function M.CheckPendingDescFetch()
+    if not pending_desc then StartNextDescFetch(); return end
+    local now = reaper.time_precise()
+    if now - _desc_last_check < POLL_INTERVAL then return end
+    _desc_last_check = now
+
+    local done = io.open(TMP_DESC_DONE, "r")
+    if not done then return end
+    done:close()
+
+    local f = io.open(TMP_DESC_TXT, "r")
+    local content = f and f:read("*a") or ""
+    if f then f:close() end
+
+    -- A 404 from raw.githubusercontent returns "404: Not Found"
+    if #content == 0 or content:find("^404") then
+        M.desc_cache[pending_desc.name] = ""
+    else
+        M.desc_cache[pending_desc.name] = content
+    end
+
+    os.remove(TMP_DESC_DONE)
+    os.remove(TMP_DESC_TXT)
+    os.remove(TMP_DESC_BAT)
+    pending_desc = nil
+    StartNextDescFetch()
 end
 
 return M
