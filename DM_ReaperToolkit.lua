@@ -29,7 +29,7 @@ local PAD_Y       = 0
 local SCROLLBAR_W = 14   -- added so the scrollbar in ##card_scroll doesn't eat into right PAD_X
 local SPLITTER_W  = 6    -- width of the draggable divider between panels
 local LOGO_W      = 160  -- rendered width of the bottom logo in pixels; change to resize it
-local LOGO_PAD_Y  = 12   -- vertical space above and below the logo
+local LOGO_PAD_Y  = 20   -- vertical space above and below the logo
 local BTN_ROUNDING     = 4   -- corner rounding for normal buttons
 local INSPECTOR_PAD_X  = 16  -- horizontal WindowPadding inside the right inspector panel
 local INSPECTOR_PAD_Y  = 12  -- vertical WindowPadding inside the right inspector panel
@@ -369,6 +369,7 @@ local function DrawToolkitInfo()
 
     reaper.ImGui_Dummy(ctx, 0, README_PAD_Y)
     reaper.ImGui_Indent(ctx, README_PAD_X)
+    reaper.ImGui_PushFont(ctx, font_big, TAB_FONT_SZ)
     if _toolkit_info.description and _toolkit_info.description ~= "" then
         reaper.ImGui_TextWrapped(ctx, _toolkit_info.description)
         reaper.ImGui_Spacing(ctx)
@@ -385,6 +386,7 @@ local function DrawToolkitInfo()
             .. "/main/"
         MD.Render(readme, base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
     end
+    reaper.ImGui_PopFont(ctx)
     reaper.ImGui_Unindent(ctx, README_PAD_X)
 end
 
@@ -402,7 +404,9 @@ local function DrawDetailHeader(status)
     local avail_w, _ = reaper.ImGui_GetContentRegionAvail(ctx)
     local inst_lbl   = (status == "installed")
                      and (PkgStatus.IsUpdateAvailable(selected) and "Update" or "Reinstall")
-                     or "Install"
+                     or "Direct Install"
+    local has_reapack   = selected.reapack_url ~= nil and selected.reapack_url ~= "None"
+    local rp_lbl        = "ReaPack Install"
 
     local has_web       = selected.Website_url ~= nil and selected.Website_url ~= "None"
     local has_gh        = selected.github_url  ~= nil and selected.github_url  ~= "None"
@@ -413,25 +417,20 @@ local function DrawDetailHeader(status)
     reaper.ImGui_PushFont(ctx, font_big, DETAIL_BTN_FONT_SZ)
     local inst_tw = reaper.ImGui_CalcTextSize(ctx, inst_lbl)
     local un_tw   = reaper.ImGui_CalcTextSize(ctx, "Uninstall")
+    local rp_tw   = reaper.ImGui_CalcTextSize(ctx, rp_lbl)
     reaper.ImGui_PopFont(ctx)
     local inst_bw = inst_tw + DETAIL_BTN_PAD_X * 2
     local un_bw   = un_tw   + DETAIL_BTN_PAD_X * 2
+    local rp_bw   = rp_tw   + DETAIL_BTN_PAD_X * 2
 
     local total_w = (has_web and (ICON_SIZE + DETAIL_BTN_GAP) or 0)
                   + (has_gh  and (ICON_SIZE + DETAIL_BTN_GAP) or 0)
                   + (has_run and (ICON_SIZE + DETAIL_BTN_GAP) or 0)
                   + inst_bw
+                  + (has_reapack and (DETAIL_BTN_GAP + rp_bw) or 0)
                   + (has_uninstall and (DETAIL_BTN_GAP + un_bw) or 0)
 
     UI.TextWithFont(ctx, selected.name, font_big, DETAIL_TITLE_FONT_SZ)
-
-    if status == "installed" then
-        reaper.ImGui_SameLine(ctx)
-        local disp_v  = PkgStatus.GetCachedVersion(selected)
-        local ver_str = disp_v and (" v" .. disp_v) or ""
-        UI.TextColored(ctx, " \xe2\x9c\x93 Installed" .. ver_str, Colors.success)
-    end
-
     reaper.ImGui_SameLine(ctx, avail_w - total_w, 0)
 
     if has_web then
@@ -461,7 +460,7 @@ local function DrawDetailHeader(status)
     end
 
     local inst_btn = {
-        color = Colors.grey, hovered = Colors.grey_hover, active = Colors.grey_press,
+        color = Colors.teal_btn, hovered = Colors.teal_btn_hover, active = Colors.teal_btn_press,
         pad_x = DETAIL_BTN_PAD_X, pad_y = DETAIL_BTN_PAD_Y, rounding = BTN_ROUNDING,
     }
     local un_btn = {
@@ -472,6 +471,17 @@ local function DrawDetailHeader(status)
     reaper.ImGui_PushFont(ctx, font_big, DETAIL_BTN_FONT_SZ)
     if UI.Button(ctx, inst_lbl .. "##inst", inst_btn) then
         DirectInstaller.StartInstall(selected)
+    end
+
+    if has_reapack then
+        reaper.ImGui_SameLine(ctx, 0, DETAIL_BTN_GAP)
+        local rp_btn = {
+            color = Colors.teal_btn, hovered = Colors.teal_btn_hover, active = Colors.teal_btn_press,
+            pad_x = DETAIL_BTN_PAD_X, pad_y = DETAIL_BTN_PAD_Y, rounding = BTN_ROUNDING,
+        }
+        if UI.Button(ctx, rp_lbl .. "##rp", rp_btn) then
+            ImportReapackRepo(selected.reapack_url, selected.name)
+        end
     end
 
     if has_uninstall then
@@ -490,6 +500,12 @@ local function DrawDetailHeader(status)
         end
     end
     reaper.ImGui_PopFont(ctx)
+
+    if status == "installed" then
+        local disp_v  = PkgStatus.GetCachedVersion(selected)
+        local ver_str = disp_v and (" v" .. disp_v) or ""
+        UI.TextColored(ctx, "\xe2\x9c\x93 Installed" .. ver_str, Colors.success)
+    end
 end
 
 local function DrawInstallStatus(di_busy, pkg_result, status)
@@ -757,13 +773,14 @@ end
 local function DrawLogo()
     if not _logo then return end
     local logo_x = math.floor((left_w - LOGO_W) / 2)
-    reaper.ImGui_SetCursorPos(ctx, logo_x, reaper.ImGui_GetCursorPosY(ctx) + LOGO_PAD_Y)
+    reaper.ImGui_SetCursorPos(ctx, logo_x, reaper.ImGui_GetCursorPosY(ctx))
     if UI.ImageButton(ctx, "##logo", _logo.img, LOGO_W, logo_h) then
         reaper.CF_ShellExecute("https://www.demute.studio/")
     end
     if reaper.ImGui_IsItemHovered(ctx) then
         reaper.ImGui_SetMouseCursor(ctx, reaper.ImGui_MouseCursor_Hand())
     end
+    reaper.ImGui_Dummy(ctx, 0, LOGO_PAD_Y)
 end
 
 local function DrawLeftPanel(avail_h)
@@ -775,7 +792,7 @@ local function DrawLeftPanel(avail_h)
 
     DrawToolbar()
     DrawSettingsPopup()
-    local logo_area_h = logo_h > 0 and (logo_h + LOGO_PAD_Y * 2) or 0
+    local logo_area_h = logo_h > 0 and (logo_h + LOGO_PAD_Y) or 0
     DrawCardList(avail_h - TOOLBAR_H, logo_area_h)
     DrawLogo()
 
