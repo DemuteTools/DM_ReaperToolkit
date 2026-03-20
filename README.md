@@ -1,6 +1,3 @@
-# Demute Reaper Toolkit
----
-
 The Demute Reaper toolkit is a manager that collects our Reaper tools.
 
 ### Requirements:
