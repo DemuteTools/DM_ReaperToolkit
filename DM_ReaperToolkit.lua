@@ -3,16 +3,22 @@
 -- ─── Module Imports ───
 
 local _dir = debug.getinfo(1, 'S').source:match("^@(.*[/\\])")
-dofile(_dir .. "DM_ToolkitFunctionsLibrary.lua")
+local _mod = _dir .. "Modules/"
+dofile(_mod .. "DM_ToolkitFunctionsLibrary.lua")
 
-local _pkg_data       = dofile(_dir .. "DM_Packages.lua")
+local _pkg_data       = dofile(_mod .. "DM_Packages.lua")
 local packages        = _pkg_data.packages
 local _toolkit_info   = _pkg_data.toolkit
-local Fetch           = dofile(_dir .. "DM_AsyncFetch.lua")
-local MD              = dofile(_dir .. "DM_Markdown.lua")
-local PkgStatus       = dofile(_dir .. "DM_PackageStatus.lua")
-local DirectInstaller = dofile(_dir .. "DM_DirectInstaller.lua")
-local UI              = dofile(_dir .. "DM_UIHelperFunctions.lua")
+local Fetch           = dofile(_mod .. "DM_AsyncFetch.lua")
+local MD              = dofile(_mod .. "DM_Markdown.lua")
+local PkgStatus       = dofile(_mod .. "DM_PackageStatus.lua")
+local DirectInstaller = dofile(_mod .. "DM_DirectInstaller.lua")
+local UI              = dofile(_mod .. "DM_UIHelperFunctions.lua")
+
+-- Strip the first top-level heading (# Title) from markdown since the title is already shown in the UI
+local function StripH1(md)
+    return md:gsub("^%s*#[^#][^\n]*\n?", "", 1)
+end
 
 local DEMUTE_ROOT = _dir
 local COMMON      = DEMUTE_ROOT .. "Common/Scripts/"
@@ -384,7 +390,7 @@ local function DrawToolkitInfo()
         local base_raw_url = _toolkit_info.github_url
             :gsub("https://github%.com/", "https://raw.githubusercontent.com/")
             .. "/main/"
-        MD.Render(readme, base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
+        MD.Render(StripH1(readme), base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
     end
     reaper.ImGui_PopFont(ctx)
     reaper.ImGui_Unindent(ctx, README_PAD_X)
@@ -402,33 +408,46 @@ end
 local function DrawDetailHeader(status)
     reaper.ImGui_Spacing(ctx)
     local avail_w, _ = reaper.ImGui_GetContentRegionAvail(ctx)
-    local inst_lbl   = (status == "installed")
-                     and (PkgStatus.IsUpdateAvailable(selected) and "Update" or "Reinstall")
-                     or "Direct Install"
     local has_reapack   = selected.reapack_url ~= nil and selected.reapack_url ~= "None"
+    local rp_registered = has_reapack and IsRepoRegistered(selected.reapack_url)
+    local rp_installed  = status == "installed" and rp_registered
+
+    -- Determine which buttons to show
+    local mgr_lbl       = "Manage in ReaPack"
+    local inst_lbl      = (status == "installed")
+                        and (PkgStatus.IsUpdateAvailable(selected) and "Update" or "Reinstall")
+                        or "Direct Install"
     local rp_lbl        = "ReaPack Install"
 
     local has_web       = selected.Website_url ~= nil and selected.Website_url ~= "None"
     local has_gh        = selected.github_url  ~= nil and selected.github_url  ~= "None"
     local has_run       = (status == "installed")
-    local has_uninstall = (status == "installed")
+    -- If installed via ReaPack, show "Manage in ReaPack" instead of install/uninstall
+    local show_manage   = rp_installed
+    local has_uninstall = (status == "installed") and not rp_installed
 
     -- Measure text button widths at the button font size
     reaper.ImGui_PushFont(ctx, font_big, DETAIL_BTN_FONT_SZ)
     local inst_tw = reaper.ImGui_CalcTextSize(ctx, inst_lbl)
     local un_tw   = reaper.ImGui_CalcTextSize(ctx, "Uninstall")
     local rp_tw   = reaper.ImGui_CalcTextSize(ctx, rp_lbl)
+    local mgr_tw  = reaper.ImGui_CalcTextSize(ctx, mgr_lbl)
     reaper.ImGui_PopFont(ctx)
     local inst_bw = inst_tw + DETAIL_BTN_PAD_X * 2
     local un_bw   = un_tw   + DETAIL_BTN_PAD_X * 2
     local rp_bw   = rp_tw   + DETAIL_BTN_PAD_X * 2
+    local mgr_bw  = mgr_tw  + DETAIL_BTN_PAD_X * 2
 
     local total_w = (has_web and (ICON_SIZE + DETAIL_BTN_GAP) or 0)
                   + (has_gh  and (ICON_SIZE + DETAIL_BTN_GAP) or 0)
                   + (has_run and (ICON_SIZE + DETAIL_BTN_GAP) or 0)
-                  + inst_bw
+    if show_manage then
+        total_w = total_w + mgr_bw
+    else
+        total_w = total_w + inst_bw
                   + (has_reapack and (DETAIL_BTN_GAP + rp_bw) or 0)
                   + (has_uninstall and (DETAIL_BTN_GAP + un_bw) or 0)
+    end
 
     UI.TextWithFont(ctx, selected.name, font_big, DETAIL_TITLE_FONT_SZ)
     reaper.ImGui_SameLine(ctx, avail_w - total_w, 0)
@@ -459,52 +478,62 @@ local function DrawDetailHeader(status)
         reaper.ImGui_SameLine(ctx, 0, DETAIL_BTN_GAP)
     end
 
-    local inst_btn = {
+    local teal_btn = {
         color = Colors.teal_btn, hovered = Colors.teal_btn_hover, active = Colors.teal_btn_press,
-        pad_x = DETAIL_BTN_PAD_X, pad_y = DETAIL_BTN_PAD_Y, rounding = BTN_ROUNDING,
-    }
-    local un_btn = {
-        color = Colors.grey, hovered = Colors.red_hover, active = Colors.red_press,
         pad_x = DETAIL_BTN_PAD_X, pad_y = DETAIL_BTN_PAD_Y, rounding = BTN_ROUNDING,
     }
 
     reaper.ImGui_PushFont(ctx, font_big, DETAIL_BTN_FONT_SZ)
-    if UI.Button(ctx, inst_lbl .. "##inst", inst_btn) then
-        DirectInstaller.StartInstall(selected)
-    end
 
-    if has_reapack then
-        reaper.ImGui_SameLine(ctx, 0, DETAIL_BTN_GAP)
-        local rp_btn = {
-            color = Colors.teal_btn, hovered = Colors.teal_btn_hover, active = Colors.teal_btn_press,
-            pad_x = DETAIL_BTN_PAD_X, pad_y = DETAIL_BTN_PAD_Y, rounding = BTN_ROUNDING,
-        }
-        if UI.Button(ctx, rp_lbl .. "##rp", rp_btn) then
-            ImportReapackRepo(selected.reapack_url, selected.name)
-        end
-    end
-
-    if has_uninstall then
-        reaper.ImGui_SameLine(ctx, 0, DETAIL_BTN_GAP)
-        if UI.Button(ctx, "Uninstall##un", un_btn) then
-            if type(selected.drive_url) == "string" and selected.reapack_url == "None" then
-                DirectInstaller.StartUninstall(selected, nil)
-            else
-                local idx_entry = Fetch.index_cache[selected.reapack_url]
-                if type(idx_entry) == "table" and not idx_entry.error and idx_entry.index_name then
-                    DirectInstaller.StartUninstall(selected, idx_entry.index_name)
-                end
+    if show_manage then
+        -- Installed via ReaPack: single "Manage in ReaPack" button
+        if UI.Button(ctx, mgr_lbl .. "##mgr", teal_btn) then
+            local manage_action = reaper.NamedCommandLookup("_REAPACK_MANAGE")
+            if manage_action > 0 then
+                reaper.Main_OnCommand(manage_action, 0)
             end
-            PkgStatus.InvalidateFileCache()
-            PkgStatus.InvalidateVersionCache()
+        end
+    else
+        -- Not installed via ReaPack: show Direct Install + ReaPack Install + Uninstall
+        if UI.Button(ctx, inst_lbl .. "##inst", teal_btn) then
+            DirectInstaller.StartInstall(selected)
+        end
+
+        if has_reapack then
+            reaper.ImGui_SameLine(ctx, 0, DETAIL_BTN_GAP)
+            if UI.Button(ctx, rp_lbl .. "##rp", teal_btn) then
+                ImportReapackRepo(selected.reapack_url, selected.name)
+            end
+        end
+
+        if has_uninstall then
+            reaper.ImGui_SameLine(ctx, 0, DETAIL_BTN_GAP)
+            local un_btn = {
+                color = Colors.grey, hovered = Colors.red_hover, active = Colors.red_press,
+                pad_x = DETAIL_BTN_PAD_X, pad_y = DETAIL_BTN_PAD_Y, rounding = BTN_ROUNDING,
+            }
+            if UI.Button(ctx, "Uninstall##un", un_btn) then
+                if type(selected.drive_url) == "string" and selected.reapack_url == "None" then
+                    DirectInstaller.StartUninstall(selected, nil)
+                else
+                    local idx_entry = Fetch.index_cache[selected.reapack_url]
+                    if type(idx_entry) == "table" and not idx_entry.error and idx_entry.index_name then
+                        DirectInstaller.StartUninstall(selected, idx_entry.index_name)
+                    end
+                end
+                PkgStatus.InvalidateFileCache()
+                PkgStatus.InvalidateVersionCache()
+            end
         end
     end
+
     reaper.ImGui_PopFont(ctx)
 
     if status == "installed" then
         local disp_v  = PkgStatus.GetCachedVersion(selected)
         local ver_str = disp_v and (" v" .. disp_v) or ""
-        UI.TextColored(ctx, "\xe2\x9c\x93 Installed" .. ver_str, Colors.success)
+        local via_str = rp_registered and " (ReaPack)" or ""
+        UI.TextColored(ctx, "\xe2\x9c\x93 Installed" .. ver_str .. via_str, Colors.success)
     end
 end
 
@@ -574,7 +603,7 @@ local function DrawDescriptionTab()
         reaper.ImGui_TextDisabled(ctx, "Loading...")
     elseif desc and desc ~= "" then
         local base_raw_url = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Descriptions/"
-        MD.Render(desc, base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
+        MD.Render(StripH1(desc), base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
     else
         reaper.ImGui_TextWrapped(ctx, "No description yet.")
     end
@@ -586,17 +615,35 @@ end
 local function DrawDocumentationTab()
     if not reaper.ImGui_BeginTabItem(ctx, "Documentation") then return end
 
-    local readme = Fetch.readme_cache[selected.github_url] or "Loading..."
     reaper.ImGui_Dummy(ctx, 0, README_PAD_Y)
     reaper.ImGui_Indent(ctx, README_PAD_X)
-    if readme == "Loading..." then
-        reaper.ImGui_TextDisabled(ctx, "Loading...")
+
+    local has_gh = selected.github_url ~= nil and selected.github_url ~= "None"
+    if has_gh then
+        -- Fetch README from the package's GitHub repo
+        local readme = Fetch.readme_cache[selected.github_url] or "Loading..."
+        if readme == "Loading..." then
+            reaper.ImGui_TextDisabled(ctx, "Loading...")
+        else
+            local base_raw_url = selected.github_url
+                :gsub("https://github%.com/", "https://raw.githubusercontent.com/")
+                .. "/main/"
+            MD.Render(StripH1(readme), base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
+        end
     else
-        local base_raw_url = selected.github_url
-            :gsub("https://github%.com/", "https://raw.githubusercontent.com/")
-            .. "/main/"
-        MD.Render(readme, base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
+        -- No GitHub repo: fetch from Resources/Documentation/{name}.md
+        Fetch.StartDocFetch(selected)
+        local doc = Fetch.doc_cache[selected.name]
+        if doc == "Loading..." or doc == "queued" then
+            reaper.ImGui_TextDisabled(ctx, "Loading...")
+        elseif doc and doc ~= "" then
+            local base_raw_url = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Documentation/"
+            MD.Render(StripH1(doc), base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
+        else
+            reaper.ImGui_TextWrapped(ctx, "No documentation yet.")
+        end
     end
+
     reaper.ImGui_Unindent(ctx, README_PAD_X)
     reaper.ImGui_EndTabItem(ctx)
 end
@@ -817,6 +864,10 @@ local function loop()
     _t = reaper.time_precise()
     Fetch.CheckPendingDescFetch()
     _prof("CheckPendingDescFetch", _t)
+
+    _t = reaper.time_precise()
+    Fetch.CheckPendingDocFetch()
+    _prof("CheckPendingDocFetch", _t)
 
     _t = reaper.time_precise()
     MD.TickParse()

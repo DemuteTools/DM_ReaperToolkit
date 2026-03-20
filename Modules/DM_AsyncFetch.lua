@@ -16,11 +16,15 @@ local TMP_IDX_BAT  = _tmp .. "\\dm_tk_indexfetch.ps1"
 local TMP_DESC_TXT  = _tmp .. "\\dm_tk_desc.txt"
 local TMP_DESC_DONE = _tmp .. "\\dm_tk_desc.done"
 local TMP_DESC_BAT  = _tmp .. "\\dm_tk_descfetch.ps1"
+local TMP_DOC_TXT   = _tmp .. "\\dm_tk_doc.txt"
+local TMP_DOC_DONE  = _tmp .. "\\dm_tk_doc.done"
+local TMP_DOC_BAT   = _tmp .. "\\dm_tk_docfetch.ps1"
 
 M.readme_cache = {}   -- key=github_url: string content or "Loading..."
 M.image_cache  = {}   -- key=url: { status, path, img }
 M.index_cache  = {}   -- key=reapack_url: "queued"/"Loading..."/{ category, name }/{ error=true }
 M.desc_cache   = {}   -- key=pkg.name: string markdown content or "Loading..."
+M.doc_cache    = {}   -- key=pkg.name: string markdown content or "Loading..."
 
 local image_queue       = {}   -- URLs waiting to be downloaded
 local active_imgs       = nil  -- array of {url,path} for the current batch, or nil
@@ -29,12 +33,15 @@ local index_queue       = {}   -- packages waiting for index XML fetch
 local pending_index     = nil  -- package whose index is being fetched
 local desc_queue        = {}   -- packages waiting for description fetch
 local pending_desc      = nil  -- package whose description is being fetched
+local doc_queue         = {}   -- packages waiting for documentation fetch
+local pending_doc       = nil  -- package whose documentation is being fetched
 
 local POLL_INTERVAL     = 0.1   -- seconds between sentinel file checks
 local _fetch_last_check = 0
 local _img_last_check   = 0
 local _index_last_check = 0
 local _desc_last_check  = 0
+local _doc_last_check   = 0
 
 -- Launch a ps1 script as a hidden background process via wscript.exe (GUI subsystem = no console window).
 local function launch_bg(ps1_path)
@@ -409,6 +416,67 @@ function M.CheckPendingDescFetch()
     os.remove(TMP_DESC_BAT)
     pending_desc = nil
     StartNextDescFetch()
+end
+
+-- Documentation markdown fetch (from Resources/Documentation/{name}.md in the toolkit repo)
+-- Used for packages without a github_url (e.g. Drive packages)
+local DOC_RAW_BASE = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Documentation/"
+
+local function StartNextDocFetch()
+    if pending_doc or #doc_queue == 0 then return end
+    local pkg = table.remove(doc_queue, 1)
+    M.doc_cache[pkg.name] = "Loading..."
+    os.remove(TMP_DOC_DONE)
+    os.remove(TMP_DOC_TXT)
+
+    local url = DOC_RAW_BASE .. pkg.name:gsub(" ", "%%20") .. ".md"
+
+    local f = io.open(TMP_DOC_BAT, "w")
+    if not f then
+        M.doc_cache[pkg.name] = ""
+        StartNextDocFetch()
+        return
+    end
+    f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', url, TMP_DOC_TXT))
+    f:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', TMP_DOC_DONE))
+    f:close()
+
+    launch_bg(TMP_DOC_BAT)
+    pending_doc = pkg
+end
+
+function M.StartDocFetch(pkg)
+    if M.doc_cache[pkg.name] then return end
+    M.doc_cache[pkg.name] = "queued"
+    doc_queue[#doc_queue + 1] = pkg
+    StartNextDocFetch()
+end
+
+function M.CheckPendingDocFetch()
+    if not pending_doc then StartNextDocFetch(); return end
+    local now = reaper.time_precise()
+    if now - _doc_last_check < POLL_INTERVAL then return end
+    _doc_last_check = now
+
+    local done = io.open(TMP_DOC_DONE, "r")
+    if not done then return end
+    done:close()
+
+    local f = io.open(TMP_DOC_TXT, "r")
+    local content = f and f:read("*a") or ""
+    if f then f:close() end
+
+    if #content == 0 or content:find("^404") then
+        M.doc_cache[pending_doc.name] = ""
+    else
+        M.doc_cache[pending_doc.name] = content
+    end
+
+    os.remove(TMP_DOC_DONE)
+    os.remove(TMP_DOC_TXT)
+    os.remove(TMP_DOC_BAT)
+    pending_doc = nil
+    StartNextDocFetch()
 end
 
 return M
