@@ -8,7 +8,7 @@ dofile(_mod .. "DM_ToolkitFunctionsLibrary.lua")
 
 local Fetch           = dofile(_mod .. "DM_AsyncFetch.lua")
 
--- Load packages: prefer the cached remote version, fall back to bundled
+-- Load packages: from remote cache if available, otherwise empty until remote fetch completes
 local _pkg_cache_path = _dir .. "cache\\dm_packages_remote.lua"
 local function _load_pkg_file(path)
     local f = io.open(path, "r")
@@ -17,7 +17,13 @@ local function _load_pkg_file(path)
     local fn = load(src)
     return fn and fn()
 end
-local _pkg_data     = _load_pkg_file(_pkg_cache_path) or dofile(_mod .. "DM_Packages.lua")
+local _pkg_data     = _load_pkg_file(_pkg_cache_path) or { packages = {}, toolkit = {
+    name        = "Demute Reaper Toolkit",
+    description = "",
+    github_url  = "https://github.com/DemuteStudio/DM_ReaperToolkit",
+    Website_url = "",
+    youtube_url = "",
+} }
 local packages      = _pkg_data.packages
 local _toolkit_info = _pkg_data.toolkit
 local MD              = dofile(_mod .. "DM_Markdown.lua")
