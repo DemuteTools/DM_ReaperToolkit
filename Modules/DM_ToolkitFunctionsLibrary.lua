@@ -80,25 +80,9 @@ function ImportReapackRepo(url, display_name)
         "Step 1: Add Repo", 0)
     reaper.Main_OnCommand(importAction, 0)
 
-    -- _REAPACK_IMPORT adds the repo with autoinstall=1 (off). Patch the ini entry
-    -- to autoinstall=2 so that the sync below (and all future syncs) auto-install.
-    local ini_path = reaper.GetResourcePath() .. "/reapack.ini"
-    local f = io.open(ini_path, "r")
-    if f then
-        local content = f:read("*a")
-        f:close()
-        -- Find the line that was just added: ends with |URL|enabled|1
-        local escaped = url:gsub("([%.%+%-%*%?%[%]%^%$%(%)%%])", "%%%1")
-        local updated = content:gsub("(" .. escaped .. "|%d+)|1\n", "%1|2\n")
-        if updated ~= content then
-            local out = io.open(ini_path, "w")
-            if out then out:write(updated); out:close() end
-            InvalidateRepoCache()
-        end
-    end
-
-    local syncAction = reaper.NamedCommandLookup("_REAPACK_SYNC")
-    if syncAction > 0 then reaper.Main_OnCommand(syncAction, 0) end
+    -- Open the Manage Repositories window so the user can install from it
+    local manageAction = reaper.NamedCommandLookup("_REAPACK_MANAGE")
+    if manageAction > 0 then reaper.Main_OnCommand(manageAction, 0) end
 end
 
 -- djb2 hash of a URL string → safe temp filename fragment
@@ -174,7 +158,3 @@ function IsRepoRegistered(url)
     return _url_results[url]
 end
 
--- Force the next IsRepoRegistered call to re-read the file
-function InvalidateRepoCache()
-    _reapack_ini_cache = nil
-end
