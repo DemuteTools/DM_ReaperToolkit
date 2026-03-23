@@ -10,7 +10,6 @@ local TMP_BAT      = _tmp .. "\\dm_tk_fetch.ps1"
 local TMP_IMG_BAT  = _tmp .. "\\dm_tk_imgfetch.ps1"
 local TMP_IMG_DONE = _tmp .. "\\dm_tk_imgfetch.done"
 local TMP_VBS      = _tmp .. "\\dm_tk_launcher.vbs"
-local TMP_IDX_TXT  = _tmp .. "\\dm_tk_index.txt"
 local TMP_IDX_DONE = _tmp .. "\\dm_tk_index.done"
 local TMP_IDX_BAT  = _tmp .. "\\dm_tk_indexfetch.ps1"
 local TMP_DESC_TXT  = _tmp .. "\\dm_tk_desc.txt"
@@ -19,6 +18,9 @@ local TMP_DESC_BAT  = _tmp .. "\\dm_tk_descfetch.ps1"
 local TMP_DOC_TXT   = _tmp .. "\\dm_tk_doc.txt"
 local TMP_DOC_DONE  = _tmp .. "\\dm_tk_doc.done"
 local TMP_DOC_BAT   = _tmp .. "\\dm_tk_docfetch.ps1"
+local TMP_PKG_TXT   = _tmp .. "\\dm_tk_packages.lua"
+local TMP_PKG_DONE  = _tmp .. "\\dm_tk_packages.done"
+local TMP_PKG_BAT   = _tmp .. "\\dm_tk_pkgfetch.ps1"
 
 M.readme_cache = {}   -- key=github_url: string content or "Loading..."
 M.image_cache  = {}   -- key=url: { status, path, img }
@@ -30,7 +32,6 @@ local image_queue       = {}   -- URLs waiting to be downloaded
 local active_imgs       = nil  -- array of {url,path} for the current batch, or nil
 local pending_fetch     = nil  -- package whose README is being fetched
 local index_queue       = {}   -- packages waiting for index XML fetch
-local pending_index     = nil  -- package whose index is being fetched
 local desc_queue        = {}   -- packages waiting for description fetch
 local pending_desc      = nil  -- package whose description is being fetched
 local doc_queue         = {}   -- packages waiting for documentation fetch
@@ -45,11 +46,8 @@ local _doc_last_check   = 0
 
 -- Launch a ps1 script as a hidden background process via wscript.exe (GUI subsystem = no console window).
 local function launch_bg(ps1_path)
-    local t0 = reaper.time_precise()
     local cmd = 'wscript.exe //B //NoLogo "' .. TMP_VBS .. '" "' .. ps1_path .. '"'
     reaper.ExecProcess(cmd, -1)
-    reaper.ShowConsoleMsg(string.format("[PROFILE] launch_bg: %.2f ms\n",
-        (reaper.time_precise() - t0) * 1000))
 end
 
 function M.Init(ctx)
@@ -96,19 +94,13 @@ function M.CheckPendingFetch()
     if now - _fetch_last_check < POLL_INTERVAL then return end
     _fetch_last_check = now
 
-    local t_sentinel = reaper.time_precise()
     local done = io.open(TMP_DONE, "r")
-    reaper.ShowConsoleMsg(string.format("[PROFILE] CheckPendingFetch io.open(done): %.2f ms\n",
-        (reaper.time_precise() - t_sentinel) * 1000))
     if not done then return end
     done:close()
 
-    local t_read = reaper.time_precise()
     local cf      = io.open(TMP_TXT, "r")
     local content = cf and cf:read("*a") or ""
     if cf then cf:close() end
-    reaper.ShowConsoleMsg(string.format("[PROFILE] README read (%d bytes): %.2f ms\n",
-        #content, (reaper.time_precise() - t_read) * 1000))
 
     M.readme_cache[pending_fetch.github_url] =
         (#content > 0) and content or "No README found."
@@ -182,7 +174,6 @@ local function StartBatchImageFetch()
     f:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', TMP_IMG_DONE))
     f:close()
 
-    reaper.ShowConsoleMsg(string.format("[PROFILE] StartBatchImageFetch: %d image(s)\n", #items))
     launch_bg(TMP_IMG_BAT)
     active_imgs = items
 end
@@ -193,121 +184,94 @@ function M.QueueImageFetch(url)
     image_queue[#image_queue + 1] = url
 end
 
+local _img_batch_done = false  -- true once sentinel detected, processing one-by-one
+local _img_process_idx = 0    -- next index in active_imgs to process
+
 function M.CheckImageFetch()
     if not active_imgs then StartBatchImageFetch(); return end
-    local now = reaper.time_precise()
-    if now - _img_last_check < POLL_INTERVAL then return end
-    _img_last_check = now
 
-    local t_sentinel = reaper.time_precise()
-    local done = io.open(TMP_IMG_DONE, "r")
-    reaper.ShowConsoleMsg(string.format("[PROFILE] CheckImageFetch io.open(done): %.2f ms\n",
-        (reaper.time_precise() - t_sentinel) * 1000))
-    if not done then return end
-    done:close()
-
-    for _, item in ipairs(active_imgs) do
-        local url, path = item.url, item.path
-        local dl_path = path:gsub("%.png$", ".dl")
-        local png_exists = io.open(path, "rb") ~= nil
-        local dl_exists  = io.open(dl_path, "rb") ~= nil
-        reaper.ShowConsoleMsg(string.format(
-            "[IMG DEBUG] url=%s\n  png=%s exists=%s\n  dl=%s exists=%s\n",
-            url, path, tostring(png_exists), dl_path, tostring(dl_exists)))
-        if dl_exists and not png_exists then
-            local hf = io.open(dl_path, "rb")
-            if hf then
-                local hdr = hf:read(16) or ""
-                hf:close()
-                local hex = {}
-                for i = 1, math.min(#hdr, 16) do
-                    hex[#hex + 1] = string.format("%02X", hdr:byte(i))
-                end
-                reaper.ShowConsoleMsg(string.format(
-                    "[IMG DEBUG] .dl header bytes: %s\n", table.concat(hex, " ")))
-            end
-        end
-        if not png_exists then
-            reaper.ShowConsoleMsg("[IMG DEBUG] Skipping — .png file not found\n")
-            M.image_cache[url] = { status = "error" }
-        else
-            local t_png = reaper.time_precise()
-            local iw, ih = GetImageSize(path)
-            reaper.ShowConsoleMsg(string.format("[PROFILE] GetPNGSize (%dx%d): %.2f ms\n",
-                iw or 0, ih or 0, (reaper.time_precise() - t_png) * 1000))
-            local t_img = reaper.time_precise()
-            local ok, img = pcall(reaper.ImGui_CreateImage, path)
-            reaper.ShowConsoleMsg(string.format(
-                "[PROFILE] ImGui_CreateImage: %.2f ms  ok=%s  err=%s\n",
-                (reaper.time_precise() - t_img) * 1000, tostring(ok),
-                ok and "none" or tostring(img)))
-            if ok and img then
-                reaper.ImGui_Attach(_ctx, img)
-                M.image_cache[url] = { status = "ready", img = img, path = path, w = iw, h = ih }
-            else
-                M.image_cache[url] = { status = "error" }
-            end
-        end
+    -- Wait for the batch download to finish (sentinel file)
+    if not _img_batch_done then
+        local now = reaper.time_precise()
+        if now - _img_last_check < POLL_INTERVAL then return end
+        _img_last_check = now
+        local done = io.open(TMP_IMG_DONE, "r")
+        if not done then return end
+        done:close()
+        _img_batch_done = true
+        _img_process_idx = 1
+        return  -- start processing next frame
     end
 
-    os.remove(TMP_IMG_DONE)
-    os.remove(TMP_IMG_BAT)
-    active_imgs = nil
-    StartBatchImageFetch()  -- pick up any newly queued images
-end
-
-local function StartNextIndexFetch()
-    if pending_index or #index_queue == 0 then return end
-    local pkg = table.remove(index_queue, 1)
-    M.index_cache[pkg.reapack_url] = "Loading..."
-    os.remove(TMP_IDX_DONE)
-    os.remove(TMP_IDX_TXT)
-
-    local f = io.open(TMP_IDX_BAT, "w")
-    if not f then
-        M.index_cache[pkg.reapack_url] = { error = true }
-        StartNextIndexFetch()
+    -- Process one image per frame to avoid freezes
+    if _img_process_idx > #active_imgs then
+        -- All done — clean up and start next batch
+        os.remove(TMP_IMG_DONE)
+        os.remove(TMP_IMG_BAT)
+        active_imgs = nil
+        _img_batch_done = false
+        _img_process_idx = 0
+        StartBatchImageFetch()  -- pick up any newly queued images
         return
     end
-    f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', pkg.reapack_url, TMP_IDX_TXT))
+
+    local item = active_imgs[_img_process_idx]
+    _img_process_idx = _img_process_idx + 1
+    local url, path = item.url, item.path
+    local f_png = io.open(path, "rb")
+    local png_exists = f_png ~= nil
+    if f_png then f_png:close() end
+    if not png_exists then
+        M.image_cache[url] = { status = "error" }
+    else
+        local iw, ih = GetImageSize(path)
+        local ok, img = pcall(reaper.ImGui_CreateImage, path)
+        if ok and img then
+            reaper.ImGui_Attach(_ctx, img)
+            M.image_cache[url] = { status = "ready", img = img, path = path, w = iw, h = ih }
+        else
+            M.image_cache[url] = { status = "error" }
+        end
+    end
+end
+
+-- Batched index fetch: all packages in one PowerShell process
+local _idx_batch       = nil  -- array of {pkg, path} when batch is running
+local _idx_process_idx = 0    -- next item to process after batch completes
+local _idx_batch_done  = false
+
+local function StartBatchIndexFetch()
+    if _idx_batch or #index_queue == 0 then return end
+    local items = {}
+    local f = io.open(TMP_IDX_BAT, "w")
+    if not f then
+        for _, pkg in ipairs(index_queue) do
+            M.index_cache[pkg.reapack_url] = { error = true }
+        end
+        index_queue = {}
+        return
+    end
+    while #index_queue > 0 do
+        local pkg = table.remove(index_queue, 1)
+        M.index_cache[pkg.reapack_url] = "Loading..."
+        local path = _tmp .. "\\dm_tk_idx_" .. HashURL(pkg.reapack_url) .. ".xml"
+        f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', pkg.reapack_url, path))
+        items[#items + 1] = { pkg = pkg, path = path }
+    end
     f:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', TMP_IDX_DONE))
     f:close()
-
     launch_bg(TMP_IDX_BAT)
-    pending_index = pkg
+    _idx_batch = items
+    _idx_batch_done = false
+    _idx_process_idx = 0
 end
 
-function M.QueueIndexFetch(pkg)
-    if M.index_cache[pkg.reapack_url] then return end
-    M.index_cache[pkg.reapack_url] = "queued"
-    index_queue[#index_queue + 1] = pkg
-    StartNextIndexFetch()
-end
-
-function M.CheckPendingIndexFetch()
-    if not pending_index then StartNextIndexFetch(); return end
-    local now = reaper.time_precise()
-    if now - _index_last_check < POLL_INTERVAL then return end
-    _index_last_check = now
-
-    local done = io.open(TMP_IDX_DONE, "r")
-    if not done then return end
-    done:close()
-
-    local f = io.open(TMP_IDX_TXT, "r")
-    local xml = f and f:read("*a") or ""
-    if f then f:close() end
-
+local function ParseIndexXml(xml)
     local index_name     = xml:match('<index[^>]+name="([^"]*)"')
     local first_category = xml:match('<category[^>]+name="([^"]*)"')
     local first_name     = xml:match('<reapack[^>]+name="([^"]*)"')
-
-    -- Single-pass tag scan: build reapack_name -> category_name map and
-    -- reapack_name -> latest version string map.
-    -- Tracks nesting depth so inner <category> (e.g. <category>Library</category>
-    -- inside a <reapack> block) does not reset the outer top-level category.
     local scripts     = {}
-    local versions    = {}   -- reapack_name -> latest version string
+    local versions    = {}
     local cur_cat     = nil
     local cur_reapack = nil
     local cat_depth   = 0
@@ -336,9 +300,8 @@ function M.CheckPendingIndexFetch()
         end
     end
     local online_commit = xml:match('<index[^>]+commit="([^"]*)"')
-
     if index_name and first_category and first_name then
-        M.index_cache[pending_index.reapack_url] = {
+        return {
             index_name    = index_name,
             category      = first_category,
             name          = first_name,
@@ -346,15 +309,58 @@ function M.CheckPendingIndexFetch()
             versions      = versions,
             online_commit = online_commit,
         }
-    else
-        M.index_cache[pending_index.reapack_url] = { error = true }
+    end
+    return nil
+end
+
+function M.QueueIndexFetch(pkg)
+    if M.index_cache[pkg.reapack_url] then return end
+    M.index_cache[pkg.reapack_url] = "queued"
+    index_queue[#index_queue + 1] = pkg
+end
+
+function M.StartIndexBatch()
+    StartBatchIndexFetch()
+end
+
+function M.CheckPendingIndexFetch()
+    if not _idx_batch then StartBatchIndexFetch(); return end
+
+    if not _idx_batch_done then
+        local now = reaper.time_precise()
+        if now - _index_last_check < POLL_INTERVAL then return end
+        _index_last_check = now
+        local done = io.open(TMP_IDX_DONE, "r")
+        if not done then return end
+        done:close()
+        _idx_batch_done = true
+        _idx_process_idx = 1
+        return
     end
 
-    os.remove(TMP_IDX_DONE)
-    os.remove(TMP_IDX_TXT)
-    os.remove(TMP_IDX_BAT)
-    pending_index = nil
-    StartNextIndexFetch()
+    -- Process one result per frame
+    if _idx_process_idx > #_idx_batch then
+        -- Clean up
+        os.remove(TMP_IDX_DONE)
+        os.remove(TMP_IDX_BAT)
+        for _, item in ipairs(_idx_batch) do
+            os.remove(item.path)
+        end
+        _idx_batch = nil
+        _idx_batch_done = false
+        _idx_process_idx = 0
+        StartBatchIndexFetch()  -- pick up any newly queued
+        return
+    end
+
+    local item = _idx_batch[_idx_process_idx]
+    _idx_process_idx = _idx_process_idx + 1
+    local f = io.open(item.path, "r")
+    local xml = f and f:read("*a") or ""
+    if f then f:close() end
+
+    local result = ParseIndexXml(xml)
+    M.index_cache[item.pkg.reapack_url] = result or { error = true }
 end
 
 -- Description markdown fetch (from Resources/Descriptions/{name}.md in the toolkit repo)
@@ -477,6 +483,80 @@ function M.CheckPendingDocFetch()
     os.remove(TMP_DOC_BAT)
     pending_doc = nil
     StartNextDocFetch()
+end
+
+-- ─── Remote Packages Fetch ───
+-- Fetches DM_Packages.lua from GitHub, compares with cache, calls on_update(content) if changed.
+
+local PACKAGES_URL     = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Modules/DM_Packages.lua"
+local _pkg_fetch_state = nil   -- nil / "fetching" / "done"
+local _pkg_cache_path  = nil
+local _pkg_on_update   = nil
+local _pkg_last_check  = 0
+
+M.packages_fetch_state = nil   -- "fetching" / "done" / nil  (readable by UI)
+
+function M.StartPackagesFetch(cache_path, on_update)
+    if _pkg_fetch_state then return end
+    _pkg_cache_path = cache_path
+    _pkg_on_update  = on_update
+    _pkg_fetch_state = "fetching"
+    M.packages_fetch_state = "fetching"
+
+    os.remove(TMP_PKG_DONE)
+    os.remove(TMP_PKG_TXT)
+
+    local f = io.open(TMP_PKG_BAT, "w")
+    if not f then
+        _pkg_fetch_state = nil
+        M.packages_fetch_state = nil
+        return
+    end
+    f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', PACKAGES_URL, TMP_PKG_TXT))
+    f:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', TMP_PKG_DONE))
+    f:close()
+
+    launch_bg(TMP_PKG_BAT)
+end
+
+function M.CheckPendingPackagesFetch()
+    if _pkg_fetch_state ~= "fetching" then return end
+    local now = reaper.time_precise()
+    if now - _pkg_last_check < POLL_INTERVAL then return end
+    _pkg_last_check = now
+
+    local done = io.open(TMP_PKG_DONE, "r")
+    if not done then return end
+    done:close()
+
+    local f = io.open(TMP_PKG_TXT, "r")
+    local content = f and f:read("*a") or ""
+    if f then f:close() end
+
+    _pkg_fetch_state = "done"
+    M.packages_fetch_state = "done"
+
+    os.remove(TMP_PKG_DONE)
+    os.remove(TMP_PKG_TXT)
+    os.remove(TMP_PKG_BAT)
+
+    if #content == 0 or content:find("^404") or content:find("^%s*<!") then return end
+
+    -- Compare with cached version
+    local cached = ""
+    if _pkg_cache_path then
+        local cf = io.open(_pkg_cache_path, "r")
+        if cf then cached = cf:read("*a"); cf:close() end
+    end
+
+    if content ~= cached then
+        -- Save new cache
+        if _pkg_cache_path then
+            local wf = io.open(_pkg_cache_path, "w")
+            if wf then wf:write(content); wf:close() end
+        end
+        if _pkg_on_update then _pkg_on_update(content) end
+    end
 end
 
 return M

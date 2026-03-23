@@ -376,17 +376,9 @@ end
 function M.TickParse()
     for key, state in pairs(_parse_state) do
         if state.status == "parsing" then
-            local t0 = reaper.time_precise()
             local ok = coroutine.resume(state.co)
-            local dt = (reaper.time_precise() - t0) * 1000
-            if dt > 1 then
-                reaper.ShowConsoleMsg(string.format("[PROFILE] TickParse tick: %.2f ms  tokens=%d\n",
-                    dt, #state.tokens))
-            end
             if not ok or coroutine.status(state.co) == "dead" then
                 state.status = "done"
-                reaper.ShowConsoleMsg(string.format("[PROFILE] Parse DONE: %d tokens total\n",
-                    #state.tokens))
             end
         end
     end

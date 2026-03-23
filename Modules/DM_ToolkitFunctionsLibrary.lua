@@ -161,23 +161,15 @@ local _url_results       = {}  -- per-URL boolean cache, cleared on ini refresh
 function IsRepoRegistered(url)
     local now = reaper.time_precise()
     if not _reapack_ini_cache or (now - _reapack_ini_time) > 10 then
-        local t0 = reaper.time_precise()
         local path = reaper.GetResourcePath() .. "/reapack.ini"
         local f = io.open(path, "r")
         _reapack_ini_cache = f and f:read("*a") or ""
         if f then f:close() end
         _reapack_ini_time = now
-        _url_results = {}  -- clear per-URL cache when file is refreshed
-        reaper.ShowConsoleMsg(string.format("[PROFILE] IsRepoRegistered: read reapack.ini (%d bytes): %.2f ms\n",
-            #_reapack_ini_cache, (reaper.time_precise() - t0) * 1000))
+        _url_results = {}
     end
     if _url_results[url] == nil then
-        local t0 = reaper.time_precise()
         _url_results[url] = _reapack_ini_cache:find(url, 1, true) ~= nil
-        local dt = (reaper.time_precise() - t0) * 1000
-        if dt > 0.1 then
-            reaper.ShowConsoleMsg(string.format("[PROFILE] IsRepoRegistered: find(): %.2f ms\n", dt))
-        end
     end
     return _url_results[url]
 end

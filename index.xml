@@ -4,20 +4,12 @@
     <reapack name="DM_ReaperToolkit.lua" type="script">
       <version name="0.1.0-beta" author="Demute">
         <source main="main">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/DM_ReaperToolkit.lua</source>
-        <source file="Modules/DM_Packages.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Modules/DM_Packages.lua</source>
         <source file="Modules/DM_DirectInstaller.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Modules/DM_DirectInstaller.lua</source>
         <source file="Modules/DM_AsyncFetch.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Modules/DM_AsyncFetch.lua</source>
         <source file="Modules/DM_Markdown.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Modules/DM_Markdown.lua</source>
         <source file="Modules/DM_PackageStatus.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Modules/DM_PackageStatus.lua</source>
         <source file="Modules/DM_ToolkitFunctionsLibrary.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Modules/DM_ToolkitFunctionsLibrary.lua</source>
         <source file="Modules/DM_UIHelperFunctions.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Modules/DM_UIHelperFunctions.lua</source>
-        <source file="Resources/Thumbnails/Ambience Creator.jpg">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Ambience%20Creator.jpg</source>
-        <source file="Resources/Thumbnails/ReaHaptic.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/ReaHaptic.png</source>
-        <source file="Resources/Thumbnails/Reaper-Batch-Renamer.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Reaper-Batch-Renamer.png</source>
-        <source file="Resources/Thumbnails/SubprojectManager.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/SubprojectManager.png</source>
-        <source file="Resources/Thumbnails/Waveform-Matcher.jpg">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Waveform-Matcher.jpg</source>
-        <source file="Resources/Thumbnails/AssetVideoOverlay.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/AssetVideoOverlay.png</source>
-        <source file="Resources/Thumbnails/Auto Voice Lines Edit and Naming.png">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/Auto%20Voice%20Lines%20Edit%20and%20Naming.png</source>
         <!-- PythonScripts -->
         <source file="Common/PythonScripts/DM_ReaLibrary.py">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/PythonScripts/DM_ReaLibrary.py</source>
         <source file="Common/PythonScripts/sws_python.py">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/PythonScripts/sws_python.py</source>

@@ -6,10 +6,20 @@ local _dir = debug.getinfo(1, 'S').source:match("^@(.*[/\\])")
 local _mod = _dir .. "Modules/"
 dofile(_mod .. "DM_ToolkitFunctionsLibrary.lua")
 
-local _pkg_data       = dofile(_mod .. "DM_Packages.lua")
-local packages        = _pkg_data.packages
-local _toolkit_info   = _pkg_data.toolkit
 local Fetch           = dofile(_mod .. "DM_AsyncFetch.lua")
+
+-- Load packages: prefer the cached remote version, fall back to bundled
+local _pkg_cache_path = _dir .. "cache\\dm_packages_remote.lua"
+local function _load_pkg_file(path)
+    local f = io.open(path, "r")
+    if not f then return nil end
+    local src = f:read("*a"); f:close()
+    local fn = load(src)
+    return fn and fn()
+end
+local _pkg_data     = _load_pkg_file(_pkg_cache_path) or dofile(_mod .. "DM_Packages.lua")
+local packages      = _pkg_data.packages
+local _toolkit_info = _pkg_data.toolkit
 local MD              = dofile(_mod .. "DM_Markdown.lua")
 local PkgStatus       = dofile(_mod .. "DM_PackageStatus.lua")
 local DirectInstaller = dofile(_mod .. "DM_DirectInstaller.lua")
@@ -115,6 +125,27 @@ PkgStatus.Init(Fetch)
 for _, pkg in ipairs(packages) do
     Fetch.QueueIndexFetch(pkg)
 end
+Fetch.StartIndexBatch()
+
+-- Kick off remote packages fetch; on completion, swap the live package list
+reaper.RecursiveCreateDirectory(_dir .. "cache", 0)
+Fetch.StartPackagesFetch(_pkg_cache_path, function(content)
+    local new_data = load(content)
+    if not new_data then return end
+    new_data = new_data()
+    if not new_data or not new_data.packages then return end
+    -- Replace packages table in-place so all existing references stay valid
+    for k in pairs(packages) do packages[k] = nil end
+    for i, p in ipairs(new_data.packages) do packages[i] = p end
+    for k, v in pairs(new_data.toolkit) do _toolkit_info[k] = v end
+    -- Queue index fetches for any new packages
+    for _, pkg in ipairs(packages) do
+        if pkg.reapack_url and not Fetch.index_cache[pkg.reapack_url] then
+            Fetch.QueueIndexFetch(pkg)
+        end
+    end
+    Fetch.StartIndexBatch()
+end)
 
 -- Logo image (bottom of left panel)
 local _logo      = nil
@@ -128,9 +159,8 @@ do
         if limg then
             ---@diagnostic disable-next-line: undefined-global
             reaper.ImGui_Attach(ctx, limg)
-            ---@diagnostic disable-next-line: undefined-global
-            local lw, lh = GetImageSize(_logo_path)
-            if not lw then lw, lh = 4, 1 end  -- fallback 4:1 ratio if header unreadable
+            local lw, lh = GetPNGSize(_logo_path)
+            if not lw then lw, lh = 4, 1 end
             _logo = { img = limg, w = lw, h = lh }
         end
     end
@@ -147,44 +177,116 @@ local _open                 = true
 local _prev_installer_state = "idle"  -- used to detect DirectInstaller "done" transition
 
 -- ─── Thumbnail Cache ───
+-- Thumbnails are fetched from GitHub and persisted to disk so they survive restarts.
+-- Only one thumbnail is loaded or promoted per frame to avoid UI freezes.
 
-local _thumb_cache = {}  -- pkg.name -> {img, w, h} or false
+local THUMB_RAW_BASE = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/"
+local _thumb_cache_dir = _dir .. "cache\\thumbnails\\"
+local _thumb_cache   = {}     -- pkg.name -> {img, w, h} or false
+local _thumb_state   = {}     -- pkg.name -> "pending_disk" / "pending_fetch" / "done"
+local _thumb_queue   = {}     -- ordered list of pkg.name waiting to be processed
+local _thumb_dir_created = false
+
+local function EnsureThumbCacheDir()
+    if _thumb_dir_created then return end
+    reaper.RecursiveCreateDirectory(_thumb_cache_dir, 0)
+    _thumb_dir_created = true
+end
+
+-- Copy a fetched image to the persistent cache
+local function PersistThumbnail(pkg, entry)
+    if not entry or not entry.path then return end
+    EnsureThumbCacheDir()
+    local ext = entry.path:match("%.(%w+)$") or "png"
+    local dest = _thumb_cache_dir .. pkg.name .. "." .. ext
+    local src = io.open(entry.path, "rb")
+    if not src then return end
+    local data = src:read("*a")
+    src:close()
+    local dst = io.open(dest, "wb")
+    if dst then dst:write(data); dst:close() end
+end
+
+-- Called once per frame from the main loop: load at most one thumbnail from disk or promote one fetch result
+local function TickThumbnails()
+    for i, name in ipairs(_thumb_queue) do
+        if _thumb_cache[name] ~= nil then
+            -- Already resolved (memory cache hit or error), remove from queue
+            table.remove(_thumb_queue, i)
+            return
+        end
+        local state = _thumb_state[name]
+
+        -- Stage 1: try loading from persistent disk cache (one per frame)
+        if state == "pending_disk" then
+            for _, ext in ipairs({ ".png", ".jpg" }) do
+                local path = _thumb_cache_dir .. name .. ext
+                local f = io.open(path, "rb")
+                if f then
+                    f:close()
+                    local ok, img = pcall(reaper.ImGui_CreateImage, path)
+                    if ok and img then
+                        reaper.ImGui_Attach(ctx, img)
+                        local w, h = GetImageSize(path)
+                        _thumb_cache[name] = { img = img, w = w or 0, h = h or 0 }
+                        _thumb_state[name] = "done"
+                        table.remove(_thumb_queue, i)
+                        return  -- one per frame
+                    end
+                end
+            end
+            -- Not on disk — move to fetch stage
+            _thumb_state[name] = "pending_fetch"
+            local encoded = name:gsub(" ", "%%20")
+            Fetch.QueueImageFetch(THUMB_RAW_BASE .. encoded .. ".png")
+            Fetch.QueueImageFetch(THUMB_RAW_BASE .. encoded .. ".jpg")
+            return  -- give fetch a frame to start
+        end
+
+        -- Stage 2: check if the fetch has completed (one per frame)
+        if state == "pending_fetch" then
+            local encoded = name:gsub(" ", "%%20")
+            local url_png = THUMB_RAW_BASE .. encoded .. ".png"
+            local url_jpg = THUMB_RAW_BASE .. encoded .. ".jpg"
+            for _, url in ipairs({ url_png, url_jpg }) do
+                local entry = Fetch.image_cache[url]
+                if entry and entry.status == "ready" then
+                    -- Find the pkg table so we can persist
+                    local pkg
+                    for _, p in ipairs(packages) do
+                        if p.name == name then pkg = p; break end
+                    end
+                    if pkg then PersistThumbnail(pkg, entry) end
+                    _thumb_cache[name] = { img = entry.img, w = entry.w, h = entry.h }
+                    _thumb_state[name] = "done"
+                    table.remove(_thumb_queue, i)
+                    return  -- one per frame
+                end
+            end
+            -- Check if both failed
+            local pe = Fetch.image_cache[url_png]
+            local je = Fetch.image_cache[url_jpg]
+            if pe and pe.status == "error" and je and je.status == "error" then
+                _thumb_cache[name] = false
+                _thumb_state[name] = "done"
+                table.remove(_thumb_queue, i)
+            end
+            return  -- wait for fetch
+        end
+    end
+end
 
 local function GetThumbnail(pkg)
+    -- Memory cache hit (instant)
     if _thumb_cache[pkg.name] ~= nil then
         return _thumb_cache[pkg.name] or nil
     end
-    local base = _dir .. "Resources/Thumbnails\\" .. pkg.name
-    local path = nil
-    for _, ext in ipairs({ ".png", ".jpg" }) do
-        local candidate = base .. ext
-        local tf = io.open(candidate, "rb")
-        if tf then tf:close(); path = candidate; break end
+    -- Enqueue if not already queued
+    if not _thumb_state[pkg.name] then
+        _thumb_state[pkg.name] = "pending_disk"
+        _thumb_queue[#_thumb_queue + 1] = pkg.name
     end
-    if not path then
-        ---@diagnostic disable-next-line: undefined-global
-        reaper.ShowConsoleMsg("[THUMB] not found: " .. base .. ".{png,jpg}\n")
-        _thumb_cache[pkg.name] = false
-        return nil
-    end
-    ---@diagnostic disable-next-line: undefined-global
-    local img = reaper.ImGui_CreateImage(path)
-    if not img then
-        ---@diagnostic disable-next-line: undefined-global
-        reaper.ShowConsoleMsg("[THUMB] CreateImage failed: " .. path .. "\n")
-        _thumb_cache[pkg.name] = false
-        return nil
-    end
-    ---@diagnostic disable-next-line: undefined-global
-    reaper.ImGui_Attach(ctx, img)
-    ---@diagnostic disable-next-line: undefined-global
-    local ok, w, h = pcall(GetImageSize, path)
-    if not ok then w, h = 0, 0 end
-    w, h = w or 0, h or 0
-    ---@diagnostic disable-next-line: undefined-global
-    reaper.ShowConsoleMsg("[THUMB] loaded " .. pkg.name .. " (" .. w .. "x" .. h .. ")\n")
-    _thumb_cache[pkg.name] = { img = img, w = w, h = h }
-    return _thumb_cache[pkg.name]
+    return nil  -- not ready yet
 end
 
 -- ─── Icon Cache ───
@@ -686,15 +788,6 @@ local function DrawDetailPanel()
     DrawDetailTabs()
 end
 
--- ─── Profiler ───
-
-local function _prof(label, t0)
-    local dt = (reaper.time_precise() - t0) * 1000
-    if dt > 1 then
-        reaper.ShowConsoleMsg(string.format("[PROFILE] %-30s %.2f ms\n", label, dt))
-    end
-end
-
 -- ─── Toolbar (Support / Contact / Settings) ───
 
 local _tb_support_hov = false
@@ -733,6 +826,13 @@ local function DrawToolbar()
     _tb_contact_hov = reaper.ImGui_IsItemHovered(ctx)
     if _tb_contact_hov then
         reaper.ImGui_SetMouseCursor(ctx, reaper.ImGui_MouseCursor_Hand())
+    end
+
+    if Fetch.packages_fetch_state == "fetching" then
+        reaper.ImGui_SameLine(ctx, 0, TOOLBAR_BTN_GAP)
+        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x888888FF)
+        reaper.ImGui_Text(ctx, "Fetching packages\xe2\x80\xa6")
+        reaper.ImGui_PopStyleColor(ctx)
     end
 
     -- Home button (deselects card → shows toolkit info)
@@ -846,32 +946,18 @@ local function DrawLeftPanel(avail_h)
     reaper.ImGui_EndChild(ctx)  -- ##cards
 end
 
--- ─── Main Loop ───
+-- ─── Main Loop ��──
 
 local function loop()
-    local _t = reaper.time_precise()
     Fetch.CheckPendingFetch()
-    _prof("CheckPendingFetch", _t)
-
-    _t = reaper.time_precise()
     Fetch.CheckImageFetch()
-    _prof("CheckImageFetch", _t)
-
-    _t = reaper.time_precise()
     Fetch.CheckPendingIndexFetch()
-    _prof("CheckPendingIndexFetch", _t)
-
-    _t = reaper.time_precise()
     Fetch.CheckPendingDescFetch()
-    _prof("CheckPendingDescFetch", _t)
-
-    _t = reaper.time_precise()
     Fetch.CheckPendingDocFetch()
-    _prof("CheckPendingDocFetch", _t)
-
-    _t = reaper.time_precise()
+    Fetch.CheckPendingPackagesFetch()
     MD.TickParse()
-    _prof("TickParse", _t)
+
+    TickThumbnails()
 
     DirectInstaller.Tick()
     if _prev_installer_state ~= "done" and DirectInstaller.state == "done" then
