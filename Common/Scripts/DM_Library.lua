@@ -294,13 +294,23 @@ function DM.File.WriteAll(path, content)
     return true
 end
 
---- Open a Windows folder-picker dialog via VBScript.
+--- Open a Windows folder-picker dialog.
+--- Uses js_ReaScriptAPI native dialog if available, otherwise falls back to VBScript.
 --- Blocks until the user selects a folder or cancels.
 --- Returns the selected folder path, or nil if cancelled.
 --- @param default_path string|nil  Initial folder to display
 --- @param prompt       string|nil  Dialog prompt text
 --- @return string|nil
 function DM.File.PickFolder(default_path, prompt)
+    -- Fast path: js_ReaScriptAPI native dialog (instant, no subprocess)
+    if reaper.JS_Dialog_BrowseForFolder then
+        local ok, path = reaper.JS_Dialog_BrowseForFolder(
+            prompt or "Select folder",
+            default_path or "")
+        return (ok == 1 and path ~= "") and path or nil
+    end
+
+    -- Fallback: VBScript (slower due to subprocess + shell namespace enumeration)
     local tmp_vbs = os.getenv("TEMP") .. "\\dm_pick_folder.vbs"
     local tmp_out = os.getenv("TEMP") .. "\\dm_pick_folder.txt"
     os.remove(tmp_out)
