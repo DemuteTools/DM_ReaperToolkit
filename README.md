@@ -1,5 +1,5 @@
 # Demute Reaper Toolkit
-The Demute Reaper toolkit is a manager that collects our Reaper tools.
+The Demute Reaper Toolkit is an package containing a collection of Reaper tools that we use at Demute. Most of these tools solve common challenges we faced while using Reaper and to improve our workflow.
 
 ## How to use:
 - Open the Toolkit.
