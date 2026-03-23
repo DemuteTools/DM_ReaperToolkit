@@ -1,6 +1,14 @@
 # Demute Reaper Toolkit
-The Demute Reaper toolkit is a manager that collects our Reaper tools.
+The Demute Reaper Toolkit is an package containing a collection of Reaper tools that we use at Demute. Most of these tools solve common challenges we faced while using Reaper and to improve our workflow.
 
+## How to use:
+- Open the Toolkit.
+- It will automatically scan for new packages or updates available online.
+- By clicking on a package card, you can view its description and documentation, and install it.
+- You have two installation options:
+    * **Direct Install**: Downloads and places all required files in your REAPER resource folder and adds the necessary actions. You can uninstall them through the Toolkit. However, if you remove the Toolkit while packages are still installed, you will need to manually remove them from the resource folder.
+    * **ReaPack Install**: Opens the ReaPack window and copies the package link to your clipboard, allowing you to paste and install it via ReaPack.
+  
 ## Requirements:
 - **Reaper**: Package was made for reaper 7.62+ but should work for older versions as well.
 - **Reapack** : Used to import the package in reaper.
