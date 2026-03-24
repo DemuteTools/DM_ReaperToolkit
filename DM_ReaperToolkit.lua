@@ -1,19 +1,44 @@
+--[[
+@description DM_ReaperToolkit
+@version 0.1.0-beta
+@about
+    The Demute Reaper Toolkit is an package containing a collection of Reaper tools that we use at Demute. Most of these tools solve common challenges we faced while using Reaper and to improve our workflow.
+@author Florian Heynen
+@provides
+    [nomain] Modules/*.lua
+    [nomain] Common/Scripts/*.lua
+    Common/Resources/Icons/*.png
+@changelog
+  # Version 0.1.0-beta - Initial release
+--]]
+
 ---@diagnostic disable: undefined-global, need-check-nil, undefined-field
 
 -- ─── Module Imports ───
 
 local _dir = debug.getinfo(1, 'S').source:match("^@(.*[/\\])")
 local _mod = _dir .. "Modules/"
+
+-- Common scripts (shared across all Demute tools)
+local DEMUTE_ROOT = _dir
+local COMMON      = DEMUTE_ROOT .. "Common/Scripts/"
+dofile(COMMON .. "DM_Colors.lua")
+dofile(COMMON .. "DM_Theme.lua")
+DM = dofile(COMMON .. "DM_Library.lua")
+local UI = dofile(COMMON .. "DM_UIHelpers.lua")
+
+-- Toolkit-specific modules
 dofile(_mod .. "DM_ToolkitFunctionsLibrary.lua")
 
 local Fetch           = dofile(_mod .. "DM_AsyncFetch.lua")
 
 -- Load packages: from remote cache if available, otherwise empty until remote fetch completes
-local _pkg_cache_path = _dir .. "cache\\dm_packages_remote.lua"
+local _pkg_cache_path = _dir .. "cache/dm_packages_remote.lua"
 local function _load_pkg_file(path)
     local f = io.open(path, "r")
     if not f then return nil end
-    local src = f:read("*a"); f:close()
+    local src = f:read("*a")
+    f:close()
     local fn = load(src)
     return fn and fn()
 end
@@ -29,21 +54,41 @@ local _toolkit_info = _pkg_data.toolkit
 local MD              = dofile(_mod .. "DM_Markdown.lua")
 local PkgStatus       = dofile(_mod .. "DM_PackageStatus.lua")
 local DirectInstaller = dofile(_mod .. "DM_DirectInstaller.lua")
-local UI              = dofile(_mod .. "DM_UIHelperFunctions.lua")
 
 -- Strip the first top-level heading (# Title) from markdown since the title is already shown in the UI
 local function StripH1(md)
     return md:gsub("^%s*#[^#][^\n]*\n?", "", 1)
 end
 
-local DEMUTE_ROOT = _dir
-local COMMON      = DEMUTE_ROOT .. "Common/Scripts/"
-dofile(COMMON .. "DM_Theme.lua")
+-- Convert a GitHub repo URL to its raw content base URL
+local function GitHubRawBaseURL(github_url)
+    return github_url:gsub("https://github%.com/", "https://raw.githubusercontent.com/") .. "/main/"
+end
+
+-- Word-wrap text into lines that fit within wrap_w pixels.
+-- Must be called inside a PushFont/PopFont block so CalcTextSize uses the right font.
+-- Returns an array of line strings and the total text height.
+local function WordWrapLines(ctx, text, wrap_w)
+    local line_h = reaper.ImGui_GetFontSize(ctx)
+    local lines = {}
+    local cur_line = ""
+    for word in text:gmatch("%S+") do
+        local test = (cur_line == "") and word or (cur_line .. " " .. word)
+        local tw = reaper.ImGui_CalcTextSize(ctx, test)
+        if tw > wrap_w and cur_line ~= "" then
+            lines[#lines + 1] = cur_line
+            cur_line = word
+        else
+            cur_line = test
+        end
+    end
+    if cur_line ~= "" then lines[#lines + 1] = cur_line end
+    return lines, #lines * line_h, line_h
+end
 
 -- ─── Constants ───
 
 -- Layout
-local COLS        = tonumber(reaper.GetExtState("DM_ReaperToolkit", "cols")) or 1
 local SPACING     = 15
 local VSPACING    = 8
 local PAD_X       = 20
@@ -59,23 +104,26 @@ local INSPECTOR_PAD_Y  = 12  -- vertical WindowPadding inside the right inspecto
 local README_PAD_X     = 10  -- extra horizontal indent for the README body
 local README_PAD_Y     = 8   -- extra vertical gap above the README body
 
--- Card image
-local TEXT_PAD_MAX  = 20
-local TEXT_PAD      = TEXT_PAD_MAX
-local TEXT_SIZE_MAX = 30
-local TEXT_SIZE_MIN = 12
-local TEXT_SIZE = TEXT_SIZE_MAX
-local CARD_REF_W = 500  -- reference card width for text scaling
-local CARD_HEIGHT_MAX = 100  -- user slider range max
-local CARD_HEIGHT_MIN = 20   -- user slider range min
-local CARD_HEIGHT = tonumber(reaper.GetExtState("DM_ReaperToolkit", "card_height")) or CARD_HEIGHT_MAX
-local BAR_H     = TEXT_SIZE_MAX + TEXT_PAD * 2 + 23  -- extra 23 px to accommodate version/update text
+-- Card text
+local TEXT_PAD_MAX       = 20
+local TEXT_SIZE_MAX      = 30
+local TEXT_SIZE_MIN      = 12
+local CARD_REF_W         = 500  -- reference card width for text scaling
+local CARD_TEXT_SCALE    = 0.8  -- fraction of CARD_REF_W at which text starts shrinking
+local CARD_VERSION_EXTRA = 23   -- extra px for version/update text below title
+
+-- Card height slider (user preference, persisted)
+local CARD_HEIGHT_MAX = 100  -- slider range max
+local CARD_HEIGHT_MIN = 20   -- slider range min
 
 -- Card overlay
-local CARD_ROUNDING    = 6
+local CARD_ROUNDING      = 6
 local CARD_BORDER_ACTIVE = 2
 local CARD_BORDER_HOVER  = 1.5
 local CARD_BORDER_IDLE   = 1
+local CARD_MIN_W         = 100  -- minimum card width in pixels
+local CARD_RUN_BTN_SZ    = 36   -- run button size on card
+local CARD_RUN_BTN_PAD   = 4    -- run button padding from card edge
 
 -- Badge (top-right dot on installed/imported cards)
 local BADGE_SIZE     = 11  -- square width/height
@@ -90,28 +138,29 @@ local ARROW_STEM_HALF_W = 1   -- half-width of the vertical stem
 local ARROW_STEM_Y      = 8   -- y offset where the stem begins (from card top)
 
 -- Toolbar (above cards)
-local TOOLBAR_H       = 20   -- height of the support/contact/settings bar
+local TOOLBAR_H         = 20  -- height of the support/contact/settings bar
 local TOOLBAR_BTN_PAD_X = 8
 local TOOLBAR_BTN_PAD_Y = 2
 local TOOLBAR_BTN_GAP   = 2
+local TOOLBAR_ICON_FONT_SZ = 17  -- font size for toolbar icon-buttons (home, gear)
 local GEAR_BTN_SZ       = 30  -- gear icon button size
 
 -- Window
-local WIN_INIT_W      = 1400
-local WIN_INIT_H      = 700
+local WIN_INIT_W = 1400
+local WIN_INIT_H = 700
 
 -- Icon buttons
-local ICON_SIZE        = 30  -- display size (px) for icon buttons
-local ICON_TINT_NORMAL = 0xFFFFFFFF
-local ICON_TINT_HOVER  = 0xCCCCCCFF
-local ICON_TINT_ACTIVE = 0xAAAAAAAA
+local ICON_SIZE = 30  -- display size (px) for icon buttons
 
 -- Detail panel
-local DETAIL_TITLE_FONT_SZ = 24
-local DETAIL_BTN_GAP       = 6
-local DETAIL_BTN_PAD_X     = 10
-local DETAIL_BTN_PAD_Y     = 5
-local DETAIL_BTN_FONT_SZ   = 17
+local DETAIL_TITLE_FONT_SZ  = 24
+local DETAIL_BTN_GAP        = 6
+local DETAIL_BTN_PAD_X      = 10
+local DETAIL_BTN_PAD_Y      = 5
+local DETAIL_BTN_FONT_SZ    = 17
+local DETAIL_DEFAULT_W      = 400  -- default width when expanding the detail panel
+local LEFT_PANEL_MIN_CONTENT_W = 150  -- minimum usable content width in left panel
+local RIGHT_PANEL_MIN_W     = 50   -- minimum space reserved on right when dragging splitter
 
 -- Detail tabs
 local TAB_FRAME_PAD_X = 16
@@ -119,8 +168,26 @@ local TAB_FRAME_PAD_Y = 8
 local TAB_FONT_SZ     = 16
 
 -- YouTube thumbnail
-local YT_THUMB_MAX_W    = 480
+local YT_THUMB_MAX_W     = 480
 local YT_CAPTION_FONT_SZ = 12
+
+-- Toggle strip
+local TOGGLE_FONT_SZ = 14
+
+-- Settings popup
+local SETTINGS_COL_BTN_SZ  = 28   -- width of column-count buttons
+local SETTINGS_COL_GAP     = 4    -- gap between column-count buttons
+local SETTINGS_SLIDER_W    = 130  -- width of the card-height slider
+
+-- ─── Mutable Layout State ───
+-- These are recalculated each frame based on user settings and window size.
+-- Lowercase to distinguish from true constants above.
+
+local cols        = tonumber(reaper.GetExtState("DM_ReaperToolkit", "cols")) or 1
+local card_height = tonumber(reaper.GetExtState("DM_ReaperToolkit", "card_height")) or CARD_HEIGHT_MAX
+local text_pad    = TEXT_PAD_MAX
+local text_size   = TEXT_SIZE_MAX
+local min_bar_h   = TEXT_SIZE_MAX + TEXT_PAD_MAX * 2 + CARD_VERSION_EXTRA
 
 -- ─── State ───
 
@@ -161,7 +228,7 @@ end)
 
 -- Logo image (bottom of left panel)
 local _logo      = nil
-local _logo_path = DEMUTE_ROOT .. "Common\\Resources\\Demute_Home_Logo.png"
+local _logo_path = DEMUTE_ROOT .. "Common/Resources/Demute_Home_Logo.png"
 do
     local lf = io.open(_logo_path, "rb")
     if lf then
@@ -171,7 +238,7 @@ do
         if limg then
             ---@diagnostic disable-next-line: undefined-global
             reaper.ImGui_Attach(ctx, limg)
-            local lw, lh = GetPNGSize(_logo_path)
+            local lw, lh = DM.Image.GetPNGSize(_logo_path)
             if not lw then lw, lh = 4, 1 end
             _logo = { img = limg, w = lw, h = lh }
         end
@@ -179,9 +246,9 @@ do
 end
 
 -- Dynamic layout state (recalculated each frame)
-local card_w = PAD_X * 2 + 500 * COLS + SPACING * (COLS - 1) + SCROLLBAR_W  -- initial estimate
+local card_w = PAD_X * 2 + CARD_REF_W * cols + SPACING * (cols - 1) + SCROLLBAR_W  -- initial estimate
 local logo_h = 0
-local _left_w_default = PAD_X * 2 + 500 * COLS + SPACING * (COLS - 1) + SCROLLBAR_W
+local _left_w_default = PAD_X * 2 + CARD_REF_W * cols + SPACING * (cols - 1) + SCROLLBAR_W
 local left_w = tonumber(reaper.GetExtState("DM_ReaperToolkit", "left_w")) or _left_w_default
 
 local _detail_hidden        = reaper.GetExtState("DM_ReaperToolkit", "detail_hidden") == "1"
@@ -201,7 +268,7 @@ local _prev_installer_state = "idle"  -- used to detect DirectInstaller "done" t
 -- Only one thumbnail is loaded or promoted per frame to avoid UI freezes.
 
 local THUMB_RAW_BASE = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/"
-local _thumb_cache_dir = _dir .. "cache\\thumbnails\\"
+local _thumb_cache_dir = _dir .. "cache/thumbnails/"
 local _thumb_cache   = {}     -- pkg.name -> {img, w, h} or false
 local _thumb_state   = {}     -- pkg.name -> "pending_disk" / "pending_fetch" / "done"
 local _thumb_queue   = {}     -- ordered list of pkg.name waiting to be processed
@@ -224,7 +291,7 @@ local function PersistThumbnail(pkg, entry)
     local data = src:read("*a")
     src:close()
     local dst = io.open(dest, "wb")
-    if dst then dst:write(data); dst:close() end
+    if dst then dst:write(data) dst:close() end
 end
 
 -- Called once per frame from the main loop: load at most one thumbnail from disk or promote one fetch result
@@ -247,7 +314,7 @@ local function TickThumbnails()
                     local ok, img = pcall(reaper.ImGui_CreateImage, path)
                     if ok and img then
                         reaper.ImGui_Attach(ctx, img)
-                        local w, h = GetImageSize(path)
+                        local w, h = DM.Image.GetImageSize(path)
                         _thumb_cache[name] = { img = img, w = w or 0, h = h or 0 }
                         _thumb_state[name] = "done"
                         table.remove(_thumb_queue, i)
@@ -257,7 +324,7 @@ local function TickThumbnails()
             end
             -- Not on disk — move to fetch stage
             _thumb_state[name] = "pending_fetch"
-            local encoded = name:gsub(" ", "%%20")
+            local encoded = DM.String.PercentEncode(name)
             Fetch.QueueImageFetch(THUMB_RAW_BASE .. encoded .. ".png")
             Fetch.QueueImageFetch(THUMB_RAW_BASE .. encoded .. ".jpg")
             return  -- give fetch a frame to start
@@ -265,7 +332,7 @@ local function TickThumbnails()
 
         -- Stage 2: check if the fetch has completed (one per frame)
         if state == "pending_fetch" then
-            local encoded = name:gsub(" ", "%%20")
+            local encoded = DM.String.PercentEncode(name)
             local url_png = THUMB_RAW_BASE .. encoded .. ".png"
             local url_jpg = THUMB_RAW_BASE .. encoded .. ".jpg"
             for _, url in ipairs({ url_png, url_jpg }) do
@@ -314,12 +381,12 @@ end
 -- the REAPER toolbar_icons/200 folder) or a full file path for custom images.
 
 local _icon_cache = {}
-local _icon_dir   = reaper.GetResourcePath():gsub("/", "\\") .. "\\Data\\toolbar_icons\\200\\"
+local _icon_dir   = reaper.GetResourcePath() .. "/Data/toolbar_icons/200/"
 
 -- Custom icon paths
-local _ico_web = DEMUTE_ROOT .. "Common\\Resources\\Icons\\android-icon-72x72.png"
-local _ico_gh  = DEMUTE_ROOT .. "Common\\Resources\\Icons\\GithubIcon.png"
-local _ico_run = reaper.GetResourcePath():gsub("/", "\\") .. "\\Data\\toolbar_icons\\toolbar_misc_right_forward_next.png"
+local _ico_web = DEMUTE_ROOT .. "Common/Resources/Icons/android-icon-72x72.png"
+local _ico_gh  = DEMUTE_ROOT .. "Common/Resources/Icons/GithubIcon.png"
+local _ico_run = reaper.GetResourcePath() .. "/Data/toolbar_icons/toolbar_misc_right_forward_next.png"
 
 local function LoadIcon(path)
     if not path:find("[/\\]") then
@@ -341,7 +408,7 @@ local function DrawIconButton(id, path, tooltip, url)
     local clicked = reaper.ImGui_InvisibleButton(ctx, id, ICON_SIZE, ICON_SIZE)
     local is_hov  = reaper.ImGui_IsItemHovered(ctx)
     local is_act  = reaper.ImGui_IsItemActive(ctx)
-    local tint    = is_act and ICON_TINT_ACTIVE or (is_hov and ICON_TINT_HOVER or ICON_TINT_NORMAL)
+    local tint    = is_act and Colors.icon_tint_active or (is_hov and Colors.icon_tint_hover or Colors.icon_tint)
     local draw_list = reaper.ImGui_GetWindowDrawList(ctx)
     reaper.ImGui_DrawList_AddImage(draw_list, ico, bx, by, bx + ICON_SIZE, by + ICON_SIZE, 0, 0, 1, 1, tint)
     if clicked then reaper.CF_ShellExecute(url) end
@@ -420,83 +487,52 @@ local function DrawPackageCard(pkg)
     local thumb     = GetThumbnail(pkg)
     local status    = PkgStatus.GetPackageStatus(pkg)
 
-    -- Pre-compute wrapped text height by simulating word-wrap
+    -- Pre-compute wrapped text layout
     local wrap_w = card_w - TEXT_PAD_MAX * 2
-    reaper.ImGui_PushFont(ctx, font_big, TEXT_SIZE)
-    local line_h = reaper.ImGui_GetFontSize(ctx)
-    local lines = 1
-    local cur_line = ""
-    for w in pkg.name:gmatch("%S+") do
-        local test = (cur_line == "") and w or (cur_line .. " " .. w)
-        local tw = reaper.ImGui_CalcTextSize(ctx, test)
-        if tw > wrap_w and cur_line ~= "" then
-            lines = lines + 1
-            cur_line = w
-        else
-            cur_line = test
-        end
-    end
-    local text_h = lines * line_h
+    reaper.ImGui_PushFont(ctx, font_big, text_size)
+    local wrapped_lines, text_h, line_h = WordWrapLines(ctx, pkg.name, wrap_w)
     reaper.ImGui_PopFont(ctx)
-    local bar_h = math.max(BAR_H, text_h + TEXT_PAD * 2)
+    local bar_h = math.max(min_bar_h, text_h + text_pad * 2)
 
     -- Draw card background (DrawList renders on top of prior widgets, so draw first)
     DrawCardImage(draw_list, thumb, x, y, bar_h)
     DrawCardBadge(draw_list, pkg, status, x, y)
 
-    -- Title text overlaid on the dark bar (same draw list, drawn after image)
-    local text_dl = draw_list
-    reaper.ImGui_PushFont(ctx, font_big, TEXT_SIZE)
+    -- Title text overlaid on the dark bar (drawn after image so it's on top)
+    reaper.ImGui_PushFont(ctx, font_big, text_size)
     local text_x = x + TEXT_PAD_MAX
-    local text_y = y + TEXT_PAD
-    -- Word-wrap manually: split and draw with DrawList so it renders on top
-    local words = {}
-    for w in pkg.name:gmatch("%S+") do words[#words + 1] = w end
-    local line = ""
-    local cy = text_y
-    for _, w in ipairs(words) do
-        local test = (line == "") and w or (line .. " " .. w)
-        local tw = reaper.ImGui_CalcTextSize(ctx, test)
-        if tw > wrap_w and line ~= "" then
-            reaper.ImGui_DrawList_AddText(text_dl, text_x, cy, Colors.white, line)
-            cy = cy + line_h
-            line = w
-        else
-            line = test
-        end
-    end
-    if line ~= "" then
-        reaper.ImGui_DrawList_AddText(text_dl, text_x, cy, Colors.white, line)
+    local cy = y + text_pad
+    for _, wrapped_line in ipairs(wrapped_lines) do
+        reaper.ImGui_DrawList_AddText(draw_list, text_x, cy, Colors.white, wrapped_line)
+        cy = cy + line_h
     end
     reaper.ImGui_PopFont(ctx)
 
     -- Run button on card (bottom-right corner) when installed
-    local _card_run_clicked = false
+    local card_run_clicked = false
     if status == "installed" then
-        local run_sz = 36
-        local run_pad = 4
-        reaper.ImGui_SetCursorScreenPos(ctx, x + card_w - run_sz - run_pad, y + bar_h - run_sz - run_pad)
+        reaper.ImGui_SetCursorScreenPos(ctx,
+            x + card_w - CARD_RUN_BTN_SZ - CARD_RUN_BTN_PAD,
+            y + bar_h - CARD_RUN_BTN_SZ - CARD_RUN_BTN_PAD)
         local ico_run = LoadIcon(_ico_run)
         if ico_run then
-            local run_style = { three_state = true }
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(), 0x00000088)
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x444444CC)
-            reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(), 0x666666CC)
-            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(), 4)
-            reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 2, 2)
-            if UI.ImageButton(ctx, "##card_run_" .. pkg.name, ico_run, run_sz - 4, run_sz - 4, run_style) then
+            local run_icon_sz = CARD_RUN_BTN_SZ - CARD_RUN_BTN_PAD
+            local run_style = {
+                three_state = true,
+                color = Colors.card_run_bg, hovered = Colors.card_run_bg_hover, active = Colors.card_run_bg_active,
+                pad_x = 2, pad_y = 2, rounding = BTN_ROUNDING,
+            }
+            if UI.ImageButton(ctx, "##card_run_" .. pkg.name, ico_run, run_icon_sz, run_icon_sz, run_style) then
                 local script_path = PkgStatus.GetScriptPath(pkg)
                 local cmd_id = reaper.AddRemoveReaScript(true, 0, script_path, true)
                 if cmd_id ~= 0 then
                     reaper.Main_OnCommand(cmd_id, 0)
                 end
-                _card_run_clicked = true
+                card_run_clicked = true
             end
-            reaper.ImGui_PopStyleVar(ctx, 2)
-            reaper.ImGui_PopStyleColor(ctx, 3)
             if reaper.ImGui_IsItemHovered(ctx) then
                 reaper.ImGui_SetTooltip(ctx, "Run")
-                _card_run_clicked = true  -- prevent card click
+                card_run_clicked = true  -- prevent card click
             end
         end
     end
@@ -508,7 +544,7 @@ local function DrawPackageCard(pkg)
     local hov = reaper.ImGui_IsItemHovered(ctx)
     local act = reaper.ImGui_IsItemActive(ctx)
     DrawCardOverlay(draw_list, x, y, bar_h, hov, act)
-    return _card_run_clicked
+    return card_run_clicked
 end
 
 -- ─── Toolkit info (shown when no card is selected) ───
@@ -541,10 +577,7 @@ local function DrawToolkitInfo()
     if readme == "Loading..." then
         reaper.ImGui_TextDisabled(ctx, "Loading...")
     else
-        local base_raw_url = _toolkit_info.github_url
-            :gsub("https://github%.com/", "https://raw.githubusercontent.com/")
-            .. "/main/"
-        MD.Render(StripH1(readme), base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
+        MD.Render(StripH1(readme), GitHubRawBaseURL(_toolkit_info.github_url), Fetch.image_cache, Fetch.QueueImageFetch)
     end
     reaper.ImGui_PopFont(ctx)
     reaper.ImGui_Unindent(ctx, README_PAD_X)
@@ -784,10 +817,7 @@ local function DrawDocumentationTab()
         if readme == "Loading..." then
             reaper.ImGui_TextDisabled(ctx, "Loading...")
         else
-            local base_raw_url = selected.github_url
-                :gsub("https://github%.com/", "https://raw.githubusercontent.com/")
-                .. "/main/"
-            MD.Render(StripH1(readme), base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
+            MD.Render(StripH1(readme), GitHubRawBaseURL(selected.github_url), Fetch.image_cache, Fetch.QueueImageFetch)
         end
     else
         -- No GitHub repo: fetch from Resources/Documentation/{name}.md
@@ -887,7 +917,7 @@ local function DrawToolbar()
 
     if Fetch.packages_fetch_state == "fetching" then
         reaper.ImGui_SameLine(ctx, 0, TOOLBAR_BTN_GAP)
-        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), 0x888888FF)
+        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Text(), Colors.grey_mid)
         reaper.ImGui_Text(ctx, "Fetching packages\xe2\x80\xa6")
         reaper.ImGui_PopStyleColor(ctx)
     end
@@ -895,10 +925,10 @@ local function DrawToolbar()
     -- Home button (deselects card → shows toolkit info)
     reaper.ImGui_SameLine(ctx, left_w - GEAR_BTN_SZ * 2 - PAD_X - TOOLBAR_BTN_GAP, 0)
     local home_style = {
-        rounding = 4, pad_x = 0, pad_y = 0,
-        color = Colors.transparent, hovered = 0x444444FF, active = 0x555555FF,
+        rounding = BTN_ROUNDING, pad_x = 0, pad_y = 0,
+        color = Colors.transparent, hovered = Colors.toggle_bg_hover, active = Colors.toggle_bg_active,
     }
-    reaper.ImGui_PushFont(ctx, font_big, 17)
+    reaper.ImGui_PushFont(ctx, font_big, TOOLBAR_ICON_FONT_SZ)
     if UI.Button(ctx, "\xe2\x8c\x82##home", home_style) then
         selected = nil
     end
@@ -910,10 +940,10 @@ local function DrawToolbar()
     -- Settings gear button (text-based)
     reaper.ImGui_SameLine(ctx, left_w - GEAR_BTN_SZ - PAD_X, 0)
     local gear_style = {
-        rounding = 4, pad_x = 0, pad_y = 0,
-        color = Colors.transparent, hovered = 0x444444FF, active = 0x555555FF,
+        rounding = BTN_ROUNDING, pad_x = 0, pad_y = 0,
+        color = Colors.transparent, hovered = Colors.toggle_bg_hover, active = Colors.toggle_bg_active,
     }
-    reaper.ImGui_PushFont(ctx, font_big, 17)
+    reaper.ImGui_PushFont(ctx, font_big, TOOLBAR_ICON_FONT_SZ)
     if UI.Button(ctx, "\xe2\x9a\x99##gear", gear_style) then
         reaper.ImGui_OpenPopup(ctx, "##settings_popup")
     end
@@ -934,13 +964,13 @@ local function DrawSettingsPopup()
         reaper.ImGui_Text(ctx, "Cards per row")
         reaper.ImGui_Spacing(ctx)
         for n = 1, 4 do
-            if n > 1 then reaper.ImGui_SameLine(ctx, 0, 4) end
-            local is_active = (COLS == n)
+            if n > 1 then reaper.ImGui_SameLine(ctx, 0, SETTINGS_COL_GAP) end
+            local is_active = (cols == n)
             local col = is_active and Theme.C.accent or Theme.C.cancel
             local hov = is_active and Theme.C.accent_hov or Theme.C.cancel_hov
             local act = is_active and Theme.C.accent_act or Theme.C.cancel_act
-            if Theme.StyledBtn(ctx, tostring(n) .. "##cols", col, hov, act, 28, 0) then
-                COLS = n
+            if Theme.StyledBtn(ctx, tostring(n) .. "##cols", col, hov, act, SETTINGS_COL_BTN_SZ, 0) then
+                cols = n
                 reaper.SetExtState("DM_ReaperToolkit", "cols", tostring(n), true)
             end
         end
@@ -949,11 +979,11 @@ local function DrawSettingsPopup()
         reaper.ImGui_Spacing(ctx)
         reaper.ImGui_Text(ctx, "Card height")
         reaper.ImGui_Spacing(ctx)
-        reaper.ImGui_SetNextItemWidth(ctx, 130)
-        local changed, new_h = reaper.ImGui_SliderInt(ctx, "##card_height", CARD_HEIGHT,
+        reaper.ImGui_SetNextItemWidth(ctx, SETTINGS_SLIDER_W)
+        local changed, new_h = reaper.ImGui_SliderInt(ctx, "##card_height", card_height,
             CARD_HEIGHT_MIN, CARD_HEIGHT_MAX)
         if changed then
-            CARD_HEIGHT = new_h
+            card_height = new_h
             reaper.SetExtState("DM_ReaperToolkit", "card_height", tostring(new_h), true)
         end
 
@@ -968,7 +998,7 @@ local function DrawCardList(avail_h, logo_area_h)
     reaper.ImGui_BeginChild(ctx, "##card_scroll", left_w, avail_h - logo_area_h)
     reaper.ImGui_SetCursorPosY(ctx, PAD_Y)
     for i, pkg in ipairs(packages) do
-        local col = (i - 1) % COLS
+        local col = (i - 1) % cols
         if col == 0 then
             reaper.ImGui_SetCursorPosX(ctx, PAD_X)
         else
@@ -982,11 +1012,11 @@ local function DrawCardList(avail_h, logo_area_h)
             Fetch.StartReadmeFetch(pkg)
             if _detail_hidden then
                 _pending_win_h = _cur_win_h
-                _pending_win_w = reaper.ImGui_GetWindowWidth(ctx) + (_detail_w or 400) + SPLITTER_W
+                _pending_win_w = reaper.ImGui_GetWindowWidth(ctx) + (_detail_w or DETAIL_DEFAULT_W) + SPLITTER_W
                 _detail_hidden = false
             end
         end
-        if (i - 1) % COLS == COLS - 1 or i == #packages then
+        if (i - 1) % cols == cols - 1 or i == #packages then
             reaper.ImGui_Dummy(ctx, 0, VSPACING)
         end
     end
@@ -1007,10 +1037,10 @@ local function DrawLogo()
 end
 
 local function DrawLeftPanel(avail_h)
-    local _nsb = reaper.ImGui_WindowFlags_NoScrollbar()       ---@diagnostic disable-line: undefined-global
-    local _nsm = reaper.ImGui_WindowFlags_NoScrollWithMouse() ---@diagnostic disable-line: undefined-global
+    local no_scroll_flags = reaper.ImGui_WindowFlags_NoScrollbar()        ---@diagnostic disable-line: undefined-global
+                          | reaper.ImGui_WindowFlags_NoScrollWithMouse()  ---@diagnostic disable-line: undefined-global
     reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 0, 0)
-    reaper.ImGui_BeginChild(ctx, "##cards", left_w, avail_h, nil, _nsb | _nsm)
+    reaper.ImGui_BeginChild(ctx, "##cards", left_w, avail_h, nil, no_scroll_flags)
     reaper.ImGui_PopStyleVar(ctx)
 
     DrawToolbar()
@@ -1022,7 +1052,7 @@ local function DrawLeftPanel(avail_h)
     reaper.ImGui_EndChild(ctx)  -- ##cards
 end
 
--- ─── Main Loop ��──
+-- ─── Main Loop ───
 
 local function loop()
     Fetch.CheckPendingFetch()
@@ -1052,20 +1082,20 @@ local function loop()
     end
 
     -- Recalculate dynamic layout values
-    card_w = math.max(100, (left_w - PAD_X * 2 - SCROLLBAR_W - SPACING * (COLS - 1)) / COLS)
+    card_w = math.max(CARD_MIN_W, (left_w - PAD_X * 2 - SCROLLBAR_W - SPACING * (cols - 1)) / cols)
 
     -- Card height slider (0-100) controls padding first, then text size
-    local height_t = CARD_HEIGHT / CARD_HEIGHT_MAX  -- 0..1
-    TEXT_PAD  = math.max(2, math.floor(TEXT_PAD_MAX * height_t))
-    local base_ts = math.floor(TEXT_SIZE_MAX * math.min(1, card_w / (CARD_REF_W * 0.8)))
+    local height_frac = card_height / CARD_HEIGHT_MAX  -- 0..1
+    text_pad = math.max(2, math.floor(TEXT_PAD_MAX * height_frac))
+    local base_text_size = math.floor(TEXT_SIZE_MAX * math.min(1, card_w / (CARD_REF_W * CARD_TEXT_SCALE)))
     -- Once padding hits minimum, start shrinking text
-    local pad_min_t = 2 / TEXT_PAD_MAX  -- threshold where padding bottoms out
-    if height_t < pad_min_t then
-        local text_t = height_t / pad_min_t
-        base_ts = math.floor(base_ts * math.max(TEXT_SIZE_MIN / TEXT_SIZE_MAX, text_t))
+    local pad_min_frac = 2 / TEXT_PAD_MAX  -- threshold where padding bottoms out
+    if height_frac < pad_min_frac then
+        local text_scale = height_frac / pad_min_frac
+        base_text_size = math.floor(base_text_size * math.max(TEXT_SIZE_MIN / TEXT_SIZE_MAX, text_scale))
     end
-    TEXT_SIZE = math.max(TEXT_SIZE_MIN, base_ts)
-    BAR_H = TEXT_SIZE + TEXT_PAD * 2 + math.floor(23 * height_t)
+    text_size = math.max(TEXT_SIZE_MIN, base_text_size)
+    min_bar_h = text_size + text_pad * 2 + math.floor(CARD_VERSION_EXTRA * height_frac)
 
     logo_h = _logo and math.floor(LOGO_W * _logo.h / _logo.w) or 0
 
@@ -1102,11 +1132,11 @@ local function loop()
             local render_w = win_w - TOGGLE_W
             local saved = left_w
             left_w = render_w
-            card_w = math.max(100, (left_w - PAD_X * 2 - SCROLLBAR_W - SPACING * (COLS - 1)) / COLS)
+            card_w = math.max(CARD_MIN_W, (left_w - PAD_X * 2 - SCROLLBAR_W - SPACING * (cols - 1)) / cols)
             DrawLeftPanel(avail_h)
             left_w = saved
         else
-            left_w = math.max(PAD_X * 2 + SCROLLBAR_W + 150, math.min(left_w, win_w - TOGGLE_W))
+            left_w = math.max(PAD_X * 2 + SCROLLBAR_W + LEFT_PANEL_MIN_CONTENT_W, math.min(left_w, win_w - TOGGLE_W))
             DrawLeftPanel(avail_h)
         end
 
@@ -1114,20 +1144,20 @@ local function loop()
             reaper.ImGui_SameLine(ctx, 0, 0)
             local sp_dx = UI.Splitter(ctx, "##splitter", SPLITTER_W, avail_h)
             if sp_dx then
-                left_w = math.max(PAD_X * 2 + SCROLLBAR_W + 150, math.min(left_w + sp_dx, win_w - SPLITTER_W - TOGGLE_W - 50))
+                left_w = math.max(PAD_X * 2 + SCROLLBAR_W + LEFT_PANEL_MIN_CONTENT_W, math.min(left_w + sp_dx, win_w - SPLITTER_W - TOGGLE_W - RIGHT_PANEL_MIN_W))
                 reaper.SetExtState("DM_ReaperToolkit", "left_w", tostring(math.floor(left_w)), true)
             end
         end
 
         -- Toggle strip (always visible, full height)
         reaper.ImGui_SameLine(ctx, 0, 0)
-        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(),        0x2A2A2AFF)
-        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), 0x444444FF)
-        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(),  0x555555FF)
+        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_Button(),        Colors.toggle_bg)
+        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonHovered(), Colors.toggle_bg_hover)
+        reaper.ImGui_PushStyleColor(ctx, reaper.ImGui_Col_ButtonActive(),  Colors.toggle_bg_active)
         reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FrameRounding(), 0)
         reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_FramePadding(), 0, 0)
         local arrow = _detail_hidden and "\xe2\x96\xb6" or "\xe2\x97\x80"
-        reaper.ImGui_PushFont(ctx, font_big, 14)
+        reaper.ImGui_PushFont(ctx, font_big, TOGGLE_FONT_SZ)
         if reaper.ImGui_Button(ctx, arrow .. "##toggle_detail", TOGGLE_W, avail_h) then
             _pending_win_h = _cur_win_h
             if not _detail_hidden then

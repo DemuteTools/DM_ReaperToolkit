@@ -1,4 +1,8 @@
----@diagnostic disable: undefined-global
+--[[
+@version 1.0
+@noindex
+@description Asynchronous fetch manager for Reaper Toolkit package data (README, images, index XML, descriptions, documentation).
+--]]
 
 local M = {}
 
@@ -130,7 +134,7 @@ local function StartBatchImageFetch()
     while #image_queue > 0 do
         local url = table.remove(image_queue, 1)
         if M.image_cache[url] and M.image_cache[url].status == "queued" then
-            local path = _tmp .. "\\dm_tk_img_" .. HashURL(url) .. ".png"
+            local path = _tmp .. "\\dm_tk_img_" .. DM.String.HashURL(url) .. ".png"
             M.image_cache[url] = { status = "downloading", path = path }
             local dl_path = path:gsub("%.png$", ".dl")
             f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', url, dl_path))
@@ -224,7 +228,7 @@ function M.CheckImageFetch()
     if not png_exists then
         M.image_cache[url] = { status = "error" }
     else
-        local iw, ih = GetImageSize(path)
+        local iw, ih = DM.Image.GetImageSize(path)
         local ok, img = pcall(reaper.ImGui_CreateImage, path)
         if ok and img then
             reaper.ImGui_Attach(_ctx, img)
@@ -254,7 +258,7 @@ local function StartBatchIndexFetch()
     while #index_queue > 0 do
         local pkg = table.remove(index_queue, 1)
         M.index_cache[pkg.reapack_url] = "Loading..."
-        local path = _tmp .. "\\dm_tk_idx_" .. HashURL(pkg.reapack_url) .. ".xml"
+        local path = _tmp .. "\\dm_tk_idx_" .. DM.String.HashURL(pkg.reapack_url) .. ".xml"
         f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', pkg.reapack_url, path))
         items[#items + 1] = { pkg = pkg, path = path }
     end

@@ -1,4 +1,8 @@
----@diagnostic disable: undefined-global
+--[[
+@version 1.0
+@noindex
+@description Helper functions for package status management
+--]]
 
 local M = {}
 
@@ -9,27 +13,13 @@ local _file_exists_cache = {}
 local _file_exists_time  = 0
 local _cached_versions   = {}  -- key "index_name:script_name" -> version or false
 
--- Returns true if version string a is numerically greater than b
-local function VersionGT(a, b)
-    local function nums(v)
-        local t = {}
-        for n in (v or ""):gmatch("%d+") do t[#t + 1] = tonumber(n) end
-        return t
-    end
-    local na, nb = nums(a), nums(b)
-    for i = 1, math.max(#na, #nb) do
-        local x, y = na[i] or 0, nb[i] or 0
-        if x > y then return true end
-        if x < y then return false end
-    end
-    return false
-end
+-- DM.String.VersionGT() is provided by DM.String.VersionGT (DM_Library.lua, loaded by the calling script)
 
 -- Returns the highest version name found within an XML block
 local function HighestVersionIn(xml_block)
     local best
     for v in xml_block:gmatch('<version[^>]+name="([^"]*)"') do
-        if not best or VersionGT(v, best) then best = v end
+        if not best or DM.String.VersionGT(v, best) then best = v end
     end
     return best
 end
@@ -157,7 +147,7 @@ function M.IsUpdateAvailable(pkg)
     if not online then return false end
     local cached = M.GetCachedVersion(pkg)
     if not cached then return false end
-    return VersionGT(online, cached)
+    return DM.String.VersionGT(online, cached)
 end
 
 function M.InvalidateFileCache()

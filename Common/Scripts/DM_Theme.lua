@@ -1,7 +1,10 @@
----@diagnostic disable: undefined-global
+--[[
+@version 1.0
+@noindex
+@description Shared window-level and widget styling for all Demute tools (reaper.ImGui_* API).
+--]]
 
 -- DM_Theme.lua
--- Shared window-level and widget styling for all Demute tools (reaper.ImGui_* API).
 -- Requires DM_Colors.lua to be loaded first (Colors global must exist).
 --
 -- Usage pattern:

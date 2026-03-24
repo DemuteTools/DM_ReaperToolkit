@@ -1,13 +1,17 @@
----@diagnostic disable: undefined-global
+--[[
+@version 1.0
+@noindex
+@description Generic utility library shared across Demute REAPER tools.
+--]]
 
 -- DM_Library.lua
--- Generic utility library shared across all Demute REAPER tools.
--- Consolidates commonly repeated functions from the codebase into one module.
 --
 -- Usage:
---   local DM = dofile(COMMON .. "DM_Library.lua")
+--   DM = dofile(COMMON .. "DM_Library.lua")
 --
 -- Categories:
+--   DM.String   — split, NormalizePath, HashURL, PercentEncode, VersionGT
+--   DM.Image    — GetPNGSize, GetImageSize, LoadDemuteLogo
 --   DM.Math     — round, clamp, lerp, map_range
 --   DM.Table    — shallow_copy, deep_copy, contains, keys, merge
 --   DM.Track    — FindByName, GetOrCreate, GetPosition
@@ -19,6 +23,146 @@
 --   DM.Log      — Msg, Console
 
 local DM = {}
+
+-- Resolve this file's own directory for LoadDemuteLogo (Common/Resources/ is one level up).
+local _lib_dir = debug.getinfo(1, "S").source:match("@?(.+[\\/])")
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- String / Path
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+DM.String = {}
+
+--- Split a string by a delimiter and return an array of parts.
+--- Example: DM.String.split("a,b,c", ",")  →  {"a", "b", "c"}
+--- @param str       string
+--- @param delimiter string
+--- @return table
+function DM.String.split(str, delimiter)
+    local result = {}
+    for match in (str .. delimiter):gmatch("(.-)" .. delimiter) do
+        result[#result + 1] = match
+    end
+    return result
+end
+
+--- Normalize path separators to forward slashes.
+--- Removes duplicate slashes and trailing slash.
+--- @param path string
+--- @return string
+function DM.String.NormalizePath(path)
+    if not path then return "" end
+    local normalized = path:gsub("\\", "/")
+    normalized = normalized:gsub("//+", "/")
+    normalized = normalized:gsub("/$", "")
+    return normalized
+end
+
+--- djb2 hash of a string → 8-char hex fragment safe for use in temp filenames.
+--- @param url string
+--- @return string
+function DM.String.HashURL(url)
+    local h = 5381
+    for i = 1, #url do h = ((h * 33) + url:byte(i)) % 0x100000000 end
+    return string.format("%08x", h)
+end
+
+--- Percent-encode a string for safe use in URLs.
+--- Encodes everything except unreserved characters (A-Z, a-z, 0-9, -, _, ., ~).
+--- @param str string
+--- @return string
+function DM.String.PercentEncode(str)
+    return (str:gsub("[^%w%-_%.~]", function(c)
+        return string.format("%%%02X", c:byte())
+    end))
+end
+
+--- Returns true if version string a is numerically greater than b.
+--- Compares dot-separated numeric segments (e.g. "1.2.3" > "1.2.0").
+--- @param a string
+--- @param b string
+--- @return boolean
+function DM.String.VersionGT(a, b)
+    local function nums(v)
+        local t = {}
+        for n in (v or ""):gmatch("%d+") do t[#t + 1] = tonumber(n) end
+        return t
+    end
+    local na, nb = nums(a), nums(b)
+    for i = 1, math.max(#na, #nb) do
+        local x, y = na[i] or 0, nb[i] or 0
+        if x > y then return true end
+        if x < y then return false end
+    end
+    return false
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Image
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+DM.Image = {}
+
+--- Read pixel dimensions from a PNG file header (first 24 bytes).
+--- @param path string
+--- @return number|nil width, number|nil height
+function DM.Image.GetPNGSize(path)
+    local f = io.open(path, "rb")
+    if not f then return nil, nil end
+    local hdr = f:read(24)
+    f:close()
+    if not hdr or #hdr < 24 then return nil, nil end
+    if hdr:byte(1) ~= 0x89 or hdr:sub(2, 4) ~= "PNG" then return nil, nil end
+    local w = hdr:byte(17)*16777216 + hdr:byte(18)*65536 + hdr:byte(19)*256 + hdr:byte(20)
+    local h = hdr:byte(21)*16777216 + hdr:byte(22)*65536 + hdr:byte(23)*256 + hdr:byte(24)
+    return w, h
+end
+
+--- Read pixel dimensions from a PNG or JPEG file.
+--- Tries PNG header first, then scans JPEG SOF markers. Reads at most 64 KB.
+--- @param path string
+--- @return number|nil width, number|nil height
+function DM.Image.GetImageSize(path)
+    local w, h = DM.Image.GetPNGSize(path)
+    if w then return w, h end
+    local f = io.open(path, "rb")
+    if not f then return nil, nil end
+    local data = f:read(65536)
+    f:close()
+    if not data or #data < 4 then return nil, nil end
+    if data:byte(1) ~= 0xFF or data:byte(2) ~= 0xD8 then return nil, nil end
+    local i = 3
+    while i <= #data - 1 do
+        if data:byte(i) ~= 0xFF then break end
+        local m = data:byte(i + 1)
+        if m == 0xDA then break end
+        if (m >= 0xC0 and m <= 0xC3) or (m >= 0xC5 and m <= 0xC7) or
+           (m >= 0xC9 and m <= 0xCB) or (m >= 0xCD and m <= 0xCF) then
+            if i + 8 <= #data then
+                return data:byte(i+7)*256 + data:byte(i+8),
+                       data:byte(i+5)*256 + data:byte(i+6)
+            end
+            break
+        end
+        if i + 3 > #data then break end
+        i = i + 2 + (data:byte(i+2)*256 + data:byte(i+3))
+    end
+    return nil, nil
+end
+
+--- Load the shared Demute logo from Common/Resources/.
+--- Creates an ImGui image handle and returns (img, width, height).
+--- Returns (nil, 0, 0) if the file cannot be read.
+--- The caller is responsible for calling reaper.ImGui_Attach(ctx, img) if needed.
+--- @return userdata|nil img, number width, number height
+function DM.Image.LoadDemuteLogo()
+    local logo_path = _lib_dir .. "../Resources/Demute_Home_Logo.png"
+    local w, h = DM.Image.GetImageSize(logo_path)
+    ---@diagnostic disable-next-line: return-type-mismatch
+    if not w then return nil, 0, 0 end
+    local img = reaper.ImGui_CreateImage(logo_path)
+    return img, w, h
+end
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Math

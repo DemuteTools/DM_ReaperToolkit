@@ -1,7 +1,10 @@
----@diagnostic disable: undefined-global, lowercase-global
+--[[
+@version 1.0
+@noindex
+@description Shared color palette for Demute tools.
+--]]
 
 -- DM_Colors.lua
--- Shared color palette for all Demute tools.
 -- Colors are in 0xRRGGBBAA format (last byte = opacity, FF = opaque).
 -- Usage: dofile(COMMON .. "DM_Colors.lua")  →  Colors.white, Colors.teal_btn, etc.
 
@@ -63,4 +66,19 @@ Colors = {
     teal_btn       = 0x15856DFF,   -- base
     teal_btn_hover = 0x2E9E86FF,   -- base + 25 per channel
     teal_btn_press = 0x006C54FF,   -- base − 25 per channel
+
+    -- Icon tints (image button overlays)
+    icon_tint        = 0xFFFFFFFF,   -- normal (white = no tint)
+    icon_tint_hover  = 0xCCCCCCFF,   -- slightly dimmed
+    icon_tint_active = 0xAAAAAAAA,   -- pressed
+
+    -- Toggle / toolbar button backgrounds
+    toggle_bg        = 0x2A2A2AFF,   -- idle
+    toggle_bg_hover  = 0x444444FF,
+    toggle_bg_active = 0x555555FF,
+
+    -- Card run-button overlay (semi-transparent)
+    card_run_bg        = 0x00000088,   -- ~53% black
+    card_run_bg_hover  = 0x444444CC,   -- ~80% grey
+    card_run_bg_active = 0x666666CC,   -- ~80% lighter grey
 }

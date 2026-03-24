@@ -1,4 +1,8 @@
----@diagnostic disable: undefined-global
+--[[
+@version 1.0
+@noindex
+@description Markdown parser and renderer for Reaper Toolkit README display
+--]]
 
 local M = {}
 

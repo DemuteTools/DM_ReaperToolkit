@@ -1,7 +1,10 @@
----@diagnostic disable: undefined-global
+--[[
+@version 1.0
+@noindex
+@description Generic ExtState load/save helpers for all Demute tools.
+--]]
 
 -- DM_Settings.lua
--- Generic ExtState load/save helpers for all Demute tools.
 -- Usage: Settings = dofile(COMMON .. "DM_Settings.lua")
 --
 -- Example:

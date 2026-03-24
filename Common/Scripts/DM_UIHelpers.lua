@@ -1,7 +1,10 @@
----@diagnostic disable: undefined-global
+--[[
+@version 1.0
+@noindex
+@description Reusable ImGui UI helpers shared across Demute tools.
+--]]
 
 -- DM_UIHelpers.lua
--- Reusable ImGui UI helpers shared across all Demute tools.
 -- Requires Colors (global) to be loaded first via DM_Colors.lua.
 -- Usage: UI = dofile(COMMON .. "DM_UIHelpers.lua")
 

@@ -1,4 +1,8 @@
----@diagnostic disable: undefined-global, need-check-nil, undefined-field
+--[[
+@version 1.0
+@noindex
+@description Direct installer for Reaper Toolkit packages
+--]]
 
 -- DM_DirectInstaller.lua
 -- Installs packages directly from their index.xml without requiring ReaPack.
@@ -65,20 +69,7 @@ local PYTHON_DEPS = {
     { file = "sws_python64.py",   url = _py_base .. "sws_python64.py" },
 }
 
-local function VersionGT(a, b)
-    local function nums(v)
-        local t = {}
-        for n in (v or ""):gmatch("%d+") do t[#t + 1] = tonumber(n) end
-        return t
-    end
-    local na, nb = nums(a), nums(b)
-    for i = 1, math.max(#na, #nb) do
-        local x, y = na[i] or 0, nb[i] or 0
-        if x > y then return true end
-        if x < y then return false end
-    end
-    return false
-end
+-- DM.String.VersionGT() is provided by DM.String.VersionGT (DM_Library.lua, loaded by the calling script)
 
 -- ── Index XML parser ──────────────────────────────────────────────────────────
 -- Returns: index_name (string), files (table) or nil, err_msg
@@ -117,7 +108,7 @@ local function ParseIndex(xml)
                 -- Pick the highest version and append its sources to files
                 local best_ver, best_sources = nil, nil
                 for _, ventry in ipairs(rp_versions) do
-                    if not best_ver or VersionGT(ventry.name, best_ver) then
+                    if not best_ver or DM.String.VersionGT(ventry.name, best_ver) then
                         best_ver     = ventry.name
                         best_sources = ventry.sources
                     end
