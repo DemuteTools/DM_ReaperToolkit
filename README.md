@@ -12,7 +12,7 @@ The Demute Reaper Toolkit is an package containing a collection of Reaper tools 
 ## Requirements:
 - **Reaper**: Package was made for reaper 7.62+ but should work for older versions as well.
 - **Reapack** : Used to import the package in reaper.
-- **Python**: Some of the packages use use python scripts, so make sure your reaper has a recognised python installation. You can check this here: **options >preferences >Plug-ins >ReaScript**
+- **Python**: Some of the packages use python scripts, so make sure your reaper has a recognised python installation. You can check this here: **options >preferences >Plug-ins >ReaScript**
 - **ReaImGui**: Most of the tool ise ReaImgui, Is included in the ReaTeam Extensions Package that you can install with Reapack. To check if it is installed, you should have a ReaImGui Tab under the ReaScript tab in the preferences: **options >preferences >Plug-ins >ReaImGui** 
 
 ## Reapack:
