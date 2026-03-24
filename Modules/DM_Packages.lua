@@ -8,7 +8,7 @@ return {
     },
     packages = {
     {
-        name        = "Waveform-Matcher",
+        name        = "Waveform Matcher",
         reapack_url = "https://raw.githubusercontent.com/DemuteStudio/Waveform-Matcher/main/index.xml",
         github_url  = "https://github.com/DemuteStudio/Waveform-Matcher",
         Website_url = "https://www.demute.studio/blog-post/waveform-matcher",
@@ -23,14 +23,14 @@ return {
         youtube_url = "https://www.youtube.com/watch?v=cdGw3aiLxr4",
     },
     {
-        name        = "Reaper-Batch-Renamer",
+        name        = "Reaper Batch Renamer",
         reapack_url = "https://raw.githubusercontent.com/DemuteStudio/Reaper-Batch-Renamer/refs/heads/main/index.xml",
         github_url  = "https://github.com/DemuteStudio/Reaper-Batch-Renamer",
         Website_url = "https://www.demute.studio/toolbox#tab1",
         main_script = "DM_RENAMER_Main.lua",  -- override: exact filename of the main script to run
     },
     {
-        name        = "ReaHaptic",
+        name        = "Reahaptic",
         reapack_url = "https://raw.githubusercontent.com/DemuteStudio/ReaHaptic/refs/heads/main/index.xml",
         github_url  = "https://github.com/DemuteStudio/ReaHaptic",
         Website_url = "https://www.demute.studio/blog-post/reahaptic",
@@ -38,14 +38,14 @@ return {
         main_script = "ReaHaptic_Settings.lua",
     },
     {
-        name        = "AssetVideoOverlay",
+        name        = "Asset Video Overlay",
         reapack_url = "https://raw.githubusercontent.com/DemuteStudio/DM_AssetVideoOverlay/refs/heads/main/index.xml",
         github_url  = "https://github.com/DemuteStudio/DM_AssetVideoOverlay",
         Website_url = "None",
         main_script = "DM_AssetVideoOverlay.lua",
     },
         {
-        name        = "SubprojectManager",
+        name        = "Subproject Manager",
         reapack_url = "https://raw.githubusercontent.com/DemuteStudio/DM_SubProjectManager/refs/heads/main/index.xml",
         github_url  = "https://github.com/DemuteStudio/DM_SubProjectManager",
         Website_url = "None",
