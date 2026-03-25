@@ -2,10 +2,13 @@
 
 ## Settup
 - Install with DM_Reapertoolkit
-- Install fuzzywuzzy
+- Install **fuzzywuzzy**
 install by running this in the comand prompt:
 C:\your\python\executable\path\python.exe -m pip install fuzzywuzzy
 Find your pyton path in reaper->Options->Preferences->Reascript-> custom path to python dll directory
+- install **speechRecognition**
+install by running this in the comand prompt:
+C:\your\python\executable\path\python.exe -m pip install SpeechRecognition
 - Settup Azure Speech-to-Text
 
 ## How to use
