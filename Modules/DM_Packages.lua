@@ -53,9 +53,8 @@ return {
     },
     {
         name        = "Auto Voice Lines Edit and Naming",
-        reapack_url = "None",
-        drive_url   = "https://drive.google.com/file/d/1G_MDn5o8zMx9wggp-ZSwV3OfazwZ0nvq/view",
-        github_url  = "None",
+        reapack_url = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Packages/DM_AutoVoiceLinesEditAndNaming/index.xml",
+        github_url  = "https://github.com/DemuteStudio/DM_ReaperToolkit",
         Website_url = "https://www.demute.studio/blog-post/auto-voice-lines-edit-and-naming",
         youtube_url = "https://www.youtube.com/watch?v=Zyzu3PFJTS8",
         main_script = "voiceutilities_detectitemtakes.py",
