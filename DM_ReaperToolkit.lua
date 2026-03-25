@@ -1109,6 +1109,7 @@ local function loop()
     reaper.ImGui_PushStyleVar(ctx, reaper.ImGui_StyleVar_WindowPadding(), 0, 0)
     local visible, p_open = reaper.ImGui_Begin(ctx, "DM ReaperToolkit", true, Theme.WindowFlags())
     if not p_open then _open = false end
+    if reaper.ImGui_IsKeyPressed(ctx, reaper.ImGui_Key_Escape()) then _open = false end
     reaper.ImGui_PopStyleVar(ctx)
     Theme.PopWindow(ctx)
 
