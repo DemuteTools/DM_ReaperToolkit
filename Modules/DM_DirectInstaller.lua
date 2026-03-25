@@ -49,6 +49,45 @@ local function LaunchBg(ps1_path)
     reaper.ExecProcess('wscript.exe //B //NoLogo "' .. _vbs .. '" "' .. ps1_path .. '"', -1)
 end
 
+-- Remove empty directories walking up from dir, stopping before stop path.
+-- os.remove() handles empty directories on Windows (Lua 5.3+ / MSVC runtime).
+-- It returns nil,err for non-empty dirs so the loop naturally stops.
+-- Collect directories to remove walking up from each dir in the set, stopping before stop path.
+-- Returns an ordered list (deepest first) suitable for sequential removal.
+local function CollectEmptyDirs(dirs, stop)
+    stop = stop:gsub("/", "\\")
+    local seen = {}
+    local ordered = {}
+    for start_dir in pairs(dirs) do
+        local dir = start_dir:gsub("/", "\\")
+        while dir ~= stop and #dir > #stop do
+            if seen[dir] then break end
+            seen[dir] = true
+            ordered[#ordered + 1] = dir
+            dir = dir:match("^(.+)\\[^\\]+$") or ""
+        end
+    end
+    -- Sort longest (deepest) first so children are removed before parents
+    table.sort(ordered, function(a, b) return #a > #b end)
+    return ordered
+end
+
+-- Remove a list of directories in a single hidden background process.
+local function RemoveEmptyDirsAsync(dir_list)
+    if #dir_list == 0 then return end
+    EnsureVBS()
+    local ps1 = _tmp .. "\\dm_inst_rmdir.ps1"
+    local f = io.open(ps1, "w")
+    if not f then return end
+    for _, dir in ipairs(dir_list) do
+        f:write(string.format(
+            'if ((Get-ChildItem -LiteralPath "%s" -Force -EA SilentlyContinue | Measure).Count -eq 0)'
+            .. ' { Remove-Item -LiteralPath "%s" -Force -EA SilentlyContinue }\r\n', dir, dir))
+    end
+    f:close()
+    LaunchBg(ps1)
+end
+
 local function IsDrivePkg(pkg)
     return type(pkg.drive_url) == "string" and pkg.reapack_url == "None"
 end
@@ -345,7 +384,7 @@ function M.Tick()
         -- Persist the index.xml to cache so GetCachedVersion can compare versions later
         local cache_dir  = _res .. "\\Scripts\\DM_ReaperToolkit\\cache"
         local cache_file = cache_dir .. "\\" .. idx_name .. ".xml"
-        os.execute('mkdir "' .. cache_dir .. '" 2>nul')
+        reaper.RecursiveCreateDirectory(cache_dir, 0)
         local wf = io.open(cache_file, "w")
         if wf then wf:write(xml); wf:close() end
 
@@ -449,6 +488,7 @@ function M.StartUninstall(pkg, index_name)
                 removed = removed + 1
             end
         end
+        RemoveEmptyDirsAsync(CollectEmptyDirs({ [dir] = true }, _res .. "\\Scripts"))
         M.results[pkg_key] = {
             state   = "done",
             message = string.format("Uninstalled. %d file(s) removed.", removed),
@@ -479,14 +519,22 @@ function M.StartUninstall(pkg, index_name)
 
     local removed = 0
     local unreg   = 0
+    local dirs_seen = {}
     for _, entry in ipairs(files) do
         if entry.is_main then
             reaper.AddRemoveReaScript(false, 0, entry.dest, true)
             unreg = unreg + 1
         end
-        if os.remove(entry.dest) then removed = removed + 1 end
+        if os.remove(entry.dest) then
+            removed = removed + 1
+            local dir = entry.dest:match("^(.+)\\[^\\]+$")
+            if dir then dirs_seen[dir] = true end
+        end
     end
     os.remove(dm_cache)  -- clear DM version cache so status checks reflect the removal
+
+    -- Clean up empty directories left behind
+    RemoveEmptyDirsAsync(CollectEmptyDirs(dirs_seen, _res .. "\\Scripts"))
 
     M.results[pkg_key] = {
         state   = "done",
