@@ -9,10 +9,6 @@
         <source file="Modules/DM_Markdown.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Modules/DM_Markdown.lua</source>
         <source file="Modules/DM_PackageStatus.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Modules/DM_PackageStatus.lua</source>
         <source file="Modules/DM_ToolkitFunctionsLibrary.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Modules/DM_ToolkitFunctionsLibrary.lua</source>
-        <!-- PythonScripts -->
-        <source file="Common/PythonScripts/DM_ReaLibrary.py">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/PythonScripts/DM_ReaLibrary.py</source>
-        <source file="Common/PythonScripts/sws_python.py">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/PythonScripts/sws_python.py</source>
-        <source file="Common/PythonScripts/sws_python64.py">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/PythonScripts/sws_python64.py</source>
         <!-- Common -->
         <source file="Common/Scripts/DM_Colors.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_Colors.lua</source>
         <source file="Common/Scripts/DM_Library.lua">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Common/Scripts/DM_Library.lua</source>
