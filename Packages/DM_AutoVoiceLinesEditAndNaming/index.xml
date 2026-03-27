@@ -3,10 +3,10 @@
   <category name="DM_AutoVoiceLinesEditAndNaming">
     <reapack name="DM_AutoVoiceLinesEditAndNaming" type="script">
       <version name="1.0.0" author="Demute">
-        <source main="main" file="voiceutilities_detectitemtakes.py">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Packages/DM_AutoVoiceLinesEditAndNaming/voiceutilities_detectitemtakes.py</source>
-        <source file="DM_ReaLibrary.py">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Packages/DM_AutoVoiceLinesEditAndNaming/DM_ReaLibrary.py</source>
-        <source file="sws_python.py">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Packages/DM_AutoVoiceLinesEditAndNaming/sws_python.py</source>
-        <source file="sws_python64.py">https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Packages/DM_AutoVoiceLinesEditAndNaming/sws_python64.py</source>
+        <source main="main" file="voiceutilities_detectitemtakes.py">https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_AutoVoiceLinesEditAndNaming/voiceutilities_detectitemtakes.py</source>
+        <source file="DM_ReaLibrary.py">https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_AutoVoiceLinesEditAndNaming/DM_ReaLibrary.py</source>
+        <source file="sws_python.py">https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_AutoVoiceLinesEditAndNaming/sws_python.py</source>
+        <source file="sws_python64.py">https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_AutoVoiceLinesEditAndNaming/sws_python64.py</source>
       </version>
     </reapack>
   </category>
