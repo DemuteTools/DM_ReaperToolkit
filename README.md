@@ -24,7 +24,7 @@ To install Reapack follow these steps:
 
 If you have Reapack installed go to **Extensions->Reapack->Import Repositories** paste the following link there and press **Ok**.
 
---> https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/refs/heads/main/index.xml
+--> https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/refs/heads/main/index.xml
 
 Then in **Extensions->Reapack->Manage repositories** you should see **Demute_Toolkit**. Then click **Browse Packages** and search for **DM_ReaperToolkit** click install and apply.
 
