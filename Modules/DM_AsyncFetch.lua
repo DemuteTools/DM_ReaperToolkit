@@ -67,21 +67,23 @@ function M.Init(ctx)
 end
 
 function M.StartReadmeFetch(pkg)
-    if M.readme_cache[pkg.github_url] then return end
+    local key = pkg.readme_url or pkg.github_url
+    if M.readme_cache[key] then return end
     if pending_fetch then return end
 
-    M.readme_cache[pkg.github_url] = "Loading..."
+    M.readme_cache[key] = "Loading..."
 
-    local url = pkg.github_url
-        :gsub("https://github%.com/", "https://raw.githubusercontent.com/")
-        .. "/main/README.md"
+    local url = pkg.readme_url
+        or (pkg.github_url
+            :gsub("https://github%.com/", "https://raw.githubusercontent.com/")
+            .. "/main/README.md")
 
     os.remove(TMP_DONE)
     os.remove(TMP_TXT)
 
     local f = io.open(TMP_BAT, "w")
     if not f then
-        M.readme_cache[pkg.github_url] = "Error: could not write temp script."
+        M.readme_cache[key] = "Error: could not write temp script."
         return
     end
     f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', url, TMP_TXT))
@@ -106,7 +108,8 @@ function M.CheckPendingFetch()
     local content = cf and cf:read("*a") or ""
     if cf then cf:close() end
 
-    M.readme_cache[pending_fetch.github_url] =
+    local key = pending_fetch.readme_url or pending_fetch.github_url
+    M.readme_cache[key] =
         (#content > 0) and content or "No README found."
 
     os.remove(TMP_DONE)

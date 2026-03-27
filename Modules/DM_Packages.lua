@@ -9,8 +9,9 @@ return {
     packages = {
     {
         name        = "Waveform Matcher",
-        reapack_url = "https://raw.githubusercontent.com/DemuteStudio/Waveform-Matcher/main/index.xml",
-        github_url  = "https://github.com/DemuteStudio/Waveform-Matcher",
+        reapack_url = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_WaveformMatcher/index.xml",
+        github_url  = "https://github.com/DemuteTools/DM_ReaperToolkit",
+        readme_url  = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_WaveformMatcher/README.md",
         Website_url = "https://www.demute.studio/blog-post/waveform-matcher",
         youtube_url = "https://www.youtube.com/watch?v=MQsJCsyyIi4",
         main_script = "WaveformMatcher.lua",
@@ -39,15 +40,17 @@ return {
     },
     {
         name        = "Asset Video Overlay",
-        reapack_url = "https://raw.githubusercontent.com/DemuteStudio/DM_AssetVideoOverlay/refs/heads/main/index.xml",
-        github_url  = "https://github.com/DemuteStudio/DM_AssetVideoOverlay",
+        reapack_url = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_AssetVideoOverlay/index.xml",
+        github_url  = "https://github.com/DemuteTools/DM_ReaperToolkit",
+        readme_url  = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_AssetVideoOverlay/README.md",
         Website_url = "None",
         main_script = "DM_AssetVideoOverlay.lua",
     },
-        {
+    {
         name        = "Subproject Manager",
-        reapack_url = "https://raw.githubusercontent.com/DemuteStudio/DM_SubProjectManager/refs/heads/main/index.xml",
-        github_url  = "https://github.com/DemuteStudio/DM_SubProjectManager",
+        reapack_url = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_SubProjectManager/index.xml",
+        github_url  = "https://github.com/DemuteTools/DM_ReaperToolkit",
+        readme_url  = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_SubProjectManager/README.md",
         Website_url = "None",
         main_script = "DM_SubprojectManager.lua",
     },

@@ -813,11 +813,14 @@ local function DrawDocumentationTab()
     local has_gh = selected.github_url ~= nil and selected.github_url ~= "None"
     if has_gh then
         -- Fetch README from the package's GitHub repo
-        local readme = Fetch.readme_cache[selected.github_url] or "Loading..."
+        local readme_key = selected.readme_url or selected.github_url
+        local readme = Fetch.readme_cache[readme_key] or "Loading..."
         if readme == "Loading..." then
             reaper.ImGui_TextDisabled(ctx, "Loading...")
         else
-            MD.Render(StripH1(readme), GitHubRawBaseURL(selected.github_url), Fetch.image_cache, Fetch.QueueImageFetch)
+            local base = selected.readme_url
+                and selected.readme_url:match("^(.*/)") or GitHubRawBaseURL(selected.github_url)
+            MD.Render(StripH1(readme), base, Fetch.image_cache, Fetch.QueueImageFetch)
         end
     else
         -- No GitHub repo: fetch from Resources/Documentation/{name}.md
