@@ -368,7 +368,7 @@ function M.CheckPendingIndexFetch()
 end
 
 -- Description markdown fetch (from Resources/Descriptions/{name}.md in the toolkit repo)
-local DESC_RAW_BASE = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Descriptions/"
+local DESC_RAW_BASE = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Resources/Descriptions/"
 
 local function StartNextDescFetch()
     if pending_desc or #desc_queue == 0 then return end
@@ -430,7 +430,7 @@ end
 
 -- Documentation markdown fetch (from Resources/Documentation/{name}.md in the toolkit repo)
 -- Used for packages without a github_url (e.g. Drive packages)
-local DOC_RAW_BASE = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Documentation/"
+local DOC_RAW_BASE = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Resources/Documentation/"
 
 local function StartNextDocFetch()
     if pending_doc or #doc_queue == 0 then return end
@@ -492,7 +492,7 @@ end
 -- ─── Remote Packages Fetch ───
 -- Fetches DM_Packages.lua from GitHub, compares with cache, calls on_update(content) if changed.
 
-local PACKAGES_URL     = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Modules/DM_Packages.lua"
+local PACKAGES_URL     = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Modules/DM_Packages.lua"
 local _pkg_fetch_state = nil   -- nil / "fetching" / "done"
 local _pkg_cache_path  = nil
 local _pkg_on_update   = nil

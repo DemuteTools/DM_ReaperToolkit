@@ -45,7 +45,7 @@ end
 local _pkg_data     = _load_pkg_file(_pkg_cache_path) or { packages = {}, toolkit = {
     name        = "Demute Reaper Toolkit",
     description = "",
-    github_url  = "https://github.com/DemuteStudio/DM_ReaperToolkit",
+    github_url  = "https://github.com/DemuteTools/DM_ReaperToolkit",
     Website_url = "",
     youtube_url = "",
 } }
@@ -267,7 +267,7 @@ local _prev_installer_state = "idle"  -- used to detect DirectInstaller "done" t
 -- Thumbnails are fetched from GitHub and persisted to disk so they survive restarts.
 -- Only one thumbnail is loaded or promoted per frame to avoid UI freezes.
 
-local THUMB_RAW_BASE = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Thumbnails/"
+local THUMB_RAW_BASE = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Resources/Thumbnails/"
 local _thumb_cache_dir = _dir .. "cache/thumbnails/"
 local _thumb_cache   = {}     -- pkg.name -> {img, w, h} or false
 local _thumb_state   = {}     -- pkg.name -> "pending_disk" / "pending_fetch" / "done"
@@ -794,7 +794,7 @@ local function DrawDescriptionTab()
     if desc == "Loading..." or desc == "queued" then
         reaper.ImGui_TextDisabled(ctx, "Loading...")
     elseif desc and desc ~= "" then
-        local base_raw_url = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Descriptions/"
+        local base_raw_url = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Resources/Descriptions/"
         MD.Render(StripH1(desc), base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
     else
         reaper.ImGui_TextWrapped(ctx, "No description yet.")
@@ -826,7 +826,7 @@ local function DrawDocumentationTab()
         if doc == "Loading..." or doc == "queued" then
             reaper.ImGui_TextDisabled(ctx, "Loading...")
         elseif doc and doc ~= "" then
-            local base_raw_url = "https://raw.githubusercontent.com/DemuteStudio/DM_ReaperToolkit/main/Resources/Documentation/"
+            local base_raw_url = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Resources/Documentation/"
             MD.Render(StripH1(doc), base_raw_url, Fetch.image_cache, Fetch.QueueImageFetch)
         else
             reaper.ImGui_TextWrapped(ctx, "No documentation yet.")
