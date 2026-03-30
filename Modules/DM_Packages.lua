@@ -28,8 +28,8 @@ return {
         reapack_url = "https://raw.githubusercontent.com/DemuteStudio/Reaper-Batch-Renamer/refs/heads/main/index.xml",
         github_url  = "https://github.com/DemuteStudio/Reaper-Batch-Renamer",
         Website_url = "https://www.demute.studio/toolbox#tab1",
-        main_script = "DM_RENAMER_Main.lua",  -- override: exact filename of the main script to run https://youtu.be/MVoOnSdwzXc
         youtube_url = "https://youtu.be/MVoOnSdwzXc",
+        main_script = "DM_RENAMER_Main.lua",  -- override: exact filename of the main script to run https://youtu.be/MVoOnSdwzXc
     },
     {
         name        = "Reahaptic",
@@ -45,8 +45,8 @@ return {
         github_url  = "https://github.com/DemuteTools/DM_ReaperToolkit",
         readme_url  = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_AssetVideoOverlay/README.md",
         Website_url = "None",
-        main_script = "DM_AssetVideoOverlay.lua",
         youtube_url = "https://youtu.be/rL1eFDB-xhk",
+        main_script = "DM_AssetVideoOverlay.lua",
     },
     {
         name        = "Subproject Manager",
@@ -54,8 +54,8 @@ return {
         github_url  = "https://github.com/DemuteTools/DM_ReaperToolkit",
         readme_url  = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_SubProjectManager/README.md",
         Website_url = "None",
-        main_script = "DM_SubprojectManager.lua",
         youtube_url = "https://youtu.be/8AFUWXLwKII",
+        main_script = "DM_SubprojectManager.lua",
     },
     {
         name        = "Auto Voice Lines Edit and Naming",
@@ -65,12 +65,4 @@ return {
         youtube_url = "https://www.youtube.com/watch?v=Zyzu3PFJTS8",
         main_script = "voiceutilities_detectitemtakes.py",
     },
-    {
-        name        = "Test",
-        reapack_url = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_AutoVoiceLinesEditAndNaming/index.xml",
-        github_url  = "https://github.com/DemuteTools/DM_ReaperToolkit",
-        Website_url = "https://www.demute.studio/blog-post/auto-voice-lines-edit-and-naming",
-        youtube_url = "https://www.youtube.com/watch?v=Zyzu3PFJTS8",
-        main_script = "voiceutilities_detectitemtakes.py",
-    }
 }}
