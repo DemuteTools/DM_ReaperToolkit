@@ -64,5 +64,13 @@ return {
         Website_url = "https://www.demute.studio/blog-post/auto-voice-lines-edit-and-naming",
         youtube_url = "https://www.youtube.com/watch?v=Zyzu3PFJTS8",
         main_script = "voiceutilities_detectitemtakes.py",
+    },
+    {
+        name        = "Test",
+        reapack_url = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_AutoVoiceLinesEditAndNaming/index.xml",
+        github_url  = "https://github.com/DemuteTools/DM_ReaperToolkit",
+        Website_url = "https://www.demute.studio/blog-post/auto-voice-lines-edit-and-naming",
+        youtube_url = "https://www.youtube.com/watch?v=Zyzu3PFJTS8",
+        main_script = "voiceutilities_detectitemtakes.py",
     }
 }}
