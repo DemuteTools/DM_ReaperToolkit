@@ -28,7 +28,8 @@ return {
         reapack_url = "https://raw.githubusercontent.com/DemuteStudio/Reaper-Batch-Renamer/refs/heads/main/index.xml",
         github_url  = "https://github.com/DemuteStudio/Reaper-Batch-Renamer",
         Website_url = "https://www.demute.studio/toolbox#tab1",
-        main_script = "DM_RENAMER_Main.lua",  -- override: exact filename of the main script to run
+        main_script = "DM_RENAMER_Main.lua",  -- override: exact filename of the main script to run https://youtu.be/MVoOnSdwzXc
+        youtube_url = "https://youtu.be/MVoOnSdwzXc",
     },
     {
         name        = "Reahaptic",
@@ -45,6 +46,7 @@ return {
         readme_url  = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_AssetVideoOverlay/README.md",
         Website_url = "None",
         main_script = "DM_AssetVideoOverlay.lua",
+        youtube_url = "https://youtu.be/rL1eFDB-xhk",
     },
     {
         name        = "Subproject Manager",
@@ -53,6 +55,7 @@ return {
         readme_url  = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_SubProjectManager/README.md",
         Website_url = "None",
         main_script = "DM_SubprojectManager.lua",
+        youtube_url = "https://youtu.be/8AFUWXLwKII",
     },
     {
         name        = "Auto Voice Lines Edit and Naming",
