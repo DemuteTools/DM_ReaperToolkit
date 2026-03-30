@@ -752,6 +752,7 @@ end
 local function DrawYouTubeThumbnail()
     if not selected.youtube_url then return end
     local vid_id = selected.youtube_url:match("[?&]v=([%w_%-]+)")
+        or selected.youtube_url:match("youtu%.be/([%w_%-]+)")
     if not vid_id then return end
 
     local thumb_url = "https://img.youtube.com/vi/" .. vid_id .. "/mqdefault.jpg"
