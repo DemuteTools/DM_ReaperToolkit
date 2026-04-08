@@ -2,6 +2,7 @@ from reaper_python import *
 from sws_python import*
 from DM_ReaLibrary import *
 import csv
+import json
 from pathlib import *
 from tkinter import *
 from tkinter import ttk
@@ -16,7 +17,10 @@ current_iterable = None
 current_func = None
 current_callback = None
 
-azure_key = None
+# STT engine settings
+STT_ENGINES = ["azure", "google", "google_cloud", "whisper", "vosk"]
+stt_engine = "azure"
+stt_engine_config = {}  # engine-specific config (keys, model paths, etc.)
 
 def process():
     RPR_Undo_BeginBlock
@@ -49,6 +53,8 @@ def ImportCSVs():
     global saved_language
     global saved_actorrow
     global saved_useactor
+    global stt_engine
+    global stt_engine_config
 
     saved_folder = csv_folder.get()
     saved_textrow = csv_textrowname.get()
@@ -56,25 +62,58 @@ def ImportCSVs():
     saved_language = csv_language.get()
     saved_actorrow = csv_actorrowname.get()
     saved_useactor = csv_useactor.get()
-    projectNotes = csv_folder.get() + "," + csv_textrowname.get() + "," + csv_keyrowname.get() + "," + csv_language.get() + "," + csv_actorrowname.get() + "," + str(csv_useactor.get())
+    stt_engine = stt_engine_var.get()
+
+    # Gather engine-specific config
+    stt_engine_config = {}
+    if stt_engine == "azure":
+        stt_engine_config["key"] = stt_azure_key.get()
+        stt_engine_config["region"] = stt_azure_region.get()
+    elif stt_engine == "google_cloud":
+        stt_engine_config["credentials_json"] = stt_gcloud_creds.get()
+    elif stt_engine == "whisper":
+        stt_engine_config["model"] = stt_whisper_model.get()
+    elif stt_engine == "vosk":
+        stt_engine_config["model_path"] = stt_vosk_model_path.get()
+
+    projectNotes = csv_folder.get() + "," + csv_textrowname.get() + "," + csv_keyrowname.get() + "," + csv_language.get() + "," + csv_actorrowname.get() + "," + str(csv_useactor.get()) + "," + stt_engine
     RPR_GetSetProjectNotes(0, True, projectNotes, 200)
 
     RPR_Undo_BeginBlock()
     DM_Log("Start import")
     try:
-        global azure_key 
-        azure_key = os.getenv("AZUREKEY")
-        if azure_key == None:
-            DM_Log("No Azure key found. Please set the environment variable AZUREKEY to your key.")
-            return
-        else:
-            DM_Log("Azure key found.")
-          
-        
+        # Validate engine-specific config
+        if stt_engine == "azure":
+            if not stt_engine_config.get("key"):
+                key = os.getenv("AZUREKEY")
+                if not key:
+                    DM_Log("No Azure key found. Set AZUREKEY env var or enter it in the field.")
+                    return
+                stt_engine_config["key"] = key
+            if not stt_engine_config.get("region"):
+                stt_engine_config["region"] = "germanywestcentral"
+            DM_Log("Using Azure STT (region: " + stt_engine_config["region"] + ")")
+        elif stt_engine == "google":
+            DM_Log("Using Google STT (free, no auth required)")
+        elif stt_engine == "google_cloud":
+            if not stt_engine_config.get("credentials_json"):
+                DM_Log("Google Cloud credentials JSON path is required.")
+                return
+            DM_Log("Using Google Cloud STT")
+        elif stt_engine == "whisper":
+            if not stt_engine_config.get("model"):
+                stt_engine_config["model"] = "base"
+            DM_Log("Using Whisper STT (model: " + stt_engine_config["model"] + ")")
+        elif stt_engine == "vosk":
+            if not stt_engine_config.get("model_path"):
+                DM_Log("Vosk model path is required.")
+                return
+            DM_Log("Using Vosk STT")
+
         CSVFiles = GetCSVFilesInFolder(Path(saved_folder))
         for filepath, csvname in CSVFiles:
             DetectLines(filepath)
-        root.destroy()   
+        root.destroy()
     except Exception as e:
         DM_Log(e)
         root.destroy()
@@ -234,36 +273,58 @@ def FindOrCreateMatchingRegion(item, key):
         RPR_AddProjectMarker(0, True, RPR_GetMediaItemInfo_Value(item, "D_POSITION"), RPR_GetMediaItemInfo_Value(item, "D_POSITION") + RPR_GetMediaItemInfo_Value(item, "D_LENGTH"), key, -1)
 
 def DM_AudioFileTranscript(audiofilepath, offset = None, duration = None, preferredphrases = None, languageToDetect = "en-US"):
-    # Load the audio file
     r = speech_recognition.Recognizer()
     DM_Log("Try open file " + audiofilepath)
     with speech_recognition.AudioFile(audiofilepath) as source:
         audio = r.record(source, duration, offset)
-    
-
-    #DM_Log("Loaded audio file")
-
-    # transcribe = timeout(timeout=10)(r.recognize_google_cloud)
-
-    # # Transcribe the audio
-    # try:
-    #     transcription = transcribe(audio, None, languageToDetect)
-    # except speech_recognition.UnknownValueError:
-    #     return("Could not transcribe audio.")
-    # except Exception as e:
-    #     DM_Log(e)
-    #     return (str(e))
 
     transcription = "Could not transcribe audio."
-    #DM_Log(azure_key)
+    engine = stt_engine
+    config = stt_engine_config
+
     try:
-        transcription = r.recognize_azure(audio_data=audio, language=languageToDetect, key=azure_key, location="germanywestcentral")
+        if engine == "azure":
+            transcription = r.recognize_azure(
+                audio_data=audio,
+                language=languageToDetect,
+                key=config.get("key"),
+                location=config.get("region", "germanywestcentral")
+            )
+            # Azure may return a tuple (text, details)
+            if isinstance(transcription, tuple):
+                transcription = transcription[0]
+
+        elif engine == "google":
+            transcription = r.recognize_google(audio, language=languageToDetect)
+
+        elif engine == "google_cloud":
+            creds_path = config.get("credentials_json", "")
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
+            result = r.recognize_google_cloud(audio, language=languageToDetect, show_all=True)
+            if result and 'results' in result and len(result['results']) > 0:
+                transcription = result['results'][0]['alternatives'][0].get('transcript', '')
+            else:
+                transcription = r.recognize_google_cloud(audio, language=languageToDetect)
+
+        elif engine == "whisper":
+            model = config.get("model", "base")
+            whisper_lang = languageToDetect.split('-')[0] if languageToDetect else None
+            transcription = r.recognize_whisper(audio, model=model, language=whisper_lang)
+
+        elif engine == "vosk":
+            model_path = config.get("model_path", "")
+            result = r.recognize_vosk(audio, model_path=model_path)
+            vosk_result = json.loads(result)
+            transcription = vosk_result.get('text', '')
+
+    except speech_recognition.UnknownValueError:
+        DM_Log("Speech not recognized by " + engine)
+        return ("Could not transcribe audio.",)
     except Exception as e:
-        DM_Log(e)
-        return (str(e))
-    
-    # Print the transcription
-    return(transcription)
+        DM_Log(engine + " error: " + str(e))
+        return (str(e),)
+
+    return (transcription,)
 
 try:
     
@@ -278,17 +339,19 @@ try:
     saved_language = ""
     saved_actorrow = ""
     saved_useactor = False
+    saved_engine = "azure"
 
-    #DM_Log(projectNotes)
     #Detect saved values in project notes
-    if projectNotes.split(",").__len__() >= 6:
-        #DM_Log("Found saved values in project notes")
-        saved_folder = projectNotes.split(",")[0]
-        saved_textrow = projectNotes.split(",")[1]
-        saved_keyrow = projectNotes.split(",")[2]
-        saved_language = projectNotes.split(",")[3]
-        saved_actorrow = projectNotes.split(",")[4]
-        saved_useactor = projectNotes.split(",")[5]=="True"
+    parts = projectNotes.split(",")
+    if len(parts) >= 6:
+        saved_folder = parts[0]
+        saved_textrow = parts[1]
+        saved_keyrow = parts[2]
+        saved_language = parts[3]
+        saved_actorrow = parts[4]
+        saved_useactor = parts[5] == "True"
+    if len(parts) >= 7:
+        saved_engine = parts[6]
 
 
     root = Tk()
@@ -323,7 +386,67 @@ try:
     useactor_entry = ttk.Checkbutton(mainframe, text="Filter lines with actor matching track name", variable=csv_useactor)
     useactor_entry.grid(column=2, row=7, sticky=(W,E))
 
-    ttk.Button(mainframe, text="Detect takes from CSV", command=ImportCSVs).grid(column=2, row=9, sticky=W)
+    # --- STT Engine selection ---
+    ttk.Label(mainframe, text="STT Engine").grid(column=1, row=8, sticky=E)
+    stt_engine_var = StringVar(root, saved_engine)
+    engine_combo = ttk.Combobox(mainframe, textvariable=stt_engine_var, values=STT_ENGINES, state="readonly")
+    engine_combo.grid(column=2, row=8, sticky=(W,E))
+
+    # Engine-specific config frames
+    engine_config_frame = ttk.Frame(mainframe)
+    engine_config_frame.grid(column=1, row=9, columnspan=2, sticky=(W,E))
+
+    # Azure config
+    azure_frame = ttk.Frame(engine_config_frame)
+    stt_azure_key = StringVar(root, os.getenv("AZUREKEY", ""))
+    stt_azure_region = StringVar(root, "germanywestcentral")
+    ttk.Label(azure_frame, text="Azure Key").grid(column=0, row=0, sticky=E, padx=5, pady=2)
+    ttk.Entry(azure_frame, textvariable=stt_azure_key, width=40).grid(column=1, row=0, sticky=(W,E), padx=5, pady=2)
+    ttk.Label(azure_frame, text="Azure Region").grid(column=0, row=1, sticky=E, padx=5, pady=2)
+    ttk.Entry(azure_frame, textvariable=stt_azure_region, width=40).grid(column=1, row=1, sticky=(W,E), padx=5, pady=2)
+
+    # Google Cloud config
+    gcloud_frame = ttk.Frame(engine_config_frame)
+    stt_gcloud_creds = StringVar(root, "")
+    ttk.Label(gcloud_frame, text="Credentials JSON path").grid(column=0, row=0, sticky=E, padx=5, pady=2)
+    ttk.Entry(gcloud_frame, textvariable=stt_gcloud_creds, width=40).grid(column=1, row=0, sticky=(W,E), padx=5, pady=2)
+
+    # Whisper config
+    whisper_frame = ttk.Frame(engine_config_frame)
+    stt_whisper_model = StringVar(root, "base")
+    ttk.Label(whisper_frame, text="Whisper model").grid(column=0, row=0, sticky=E, padx=5, pady=2)
+    whisper_model_combo = ttk.Combobox(whisper_frame, textvariable=stt_whisper_model, values=["tiny", "base", "small", "medium", "large"], state="readonly")
+    whisper_model_combo.grid(column=1, row=0, sticky=(W,E), padx=5, pady=2)
+
+    # Vosk config
+    vosk_frame = ttk.Frame(engine_config_frame)
+    stt_vosk_model_path = StringVar(root, "")
+    ttk.Label(vosk_frame, text="Vosk model folder").grid(column=0, row=0, sticky=E, padx=5, pady=2)
+    ttk.Entry(vosk_frame, textvariable=stt_vosk_model_path, width=40).grid(column=1, row=0, sticky=(W,E), padx=5, pady=2)
+
+    # Google free needs no config - just show a label
+    google_frame = ttk.Frame(engine_config_frame)
+    ttk.Label(google_frame, text="No configuration needed (free, rate-limited)").grid(column=0, row=0, padx=5, pady=2)
+
+    engine_frames = {
+        "azure": azure_frame,
+        "google": google_frame,
+        "google_cloud": gcloud_frame,
+        "whisper": whisper_frame,
+        "vosk": vosk_frame,
+    }
+
+    def on_engine_changed(*args):
+        for frame in engine_frames.values():
+            frame.grid_forget()
+        selected = stt_engine_var.get()
+        if selected in engine_frames:
+            engine_frames[selected].grid(column=0, row=0, sticky=(W,E))
+
+    stt_engine_var.trace_add("write", on_engine_changed)
+    on_engine_changed()  # show initial engine config
+
+    ttk.Button(mainframe, text="Detect takes from CSV", command=ImportCSVs).grid(column=2, row=10, sticky=W)
 
     ttk.Label(mainframe, text="Folder with CSVs").grid(column=1, row=1, sticky=E)
     ttk.Label(mainframe, text="Dialogue text header").grid(column=1, row=3, sticky=E)
