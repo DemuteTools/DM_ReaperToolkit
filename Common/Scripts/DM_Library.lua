@@ -455,8 +455,28 @@ function DM.File.PickFolder(default_path, prompt)
     end
 
     -- Fallback: VBScript (slower due to subprocess + shell namespace enumeration)
-    local tmp_vbs = os.getenv("TEMP") .. "\\dm_pick_folder.vbs"
-    local tmp_out = os.getenv("TEMP") .. "\\dm_pick_folder.txt"
+    -- Guard against nil TEMP and non-ASCII paths (Lua 5.3 ANSI APIs).
+    local function _pick_tmp()
+        local function try(dir)
+            if type(dir) ~= "string" or #dir == 0 then return false end
+            dir = dir:gsub("/", "\\"):gsub("\\+$", "")
+            local probe = dir .. "\\dm_tk_write_probe.tmp"
+            local f = io.open(probe, "w")
+            if f then f:close(); os.remove(probe); return dir end
+            return false
+        end
+        return try(os.getenv("TEMP"))
+            or try(os.getenv("TMP"))
+            or try("C:\\Windows\\Temp")
+            or (function()
+                   local fb = reaper.GetResourcePath():gsub("/", "\\") .. "\\dm_tmp"
+                   reaper.RecursiveCreateDirectory(fb, 0)
+                   return fb
+               end)()
+    end
+    local _tmp_dir = _pick_tmp()
+    local tmp_vbs = _tmp_dir .. "\\dm_pick_folder.vbs"
+    local tmp_out = _tmp_dir .. "\\dm_pick_folder.txt"
     os.remove(tmp_out)
 
     local vbs = string.format([[

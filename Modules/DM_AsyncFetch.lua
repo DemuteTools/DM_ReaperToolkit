@@ -7,7 +7,36 @@
 local M = {}
 
 local _ctx
-local _tmp         = (os.getenv("TEMP") or reaper.GetResourcePath()):gsub("/", "\\")
+
+-- Resolve a writable temp directory. Lua 5.3 on Windows uses ANSI file APIs, so
+-- paths containing non-ASCII characters (e.g. accented letters in the username)
+-- will silently fail with io.open. We probe each candidate with a real write test
+-- and fall back to C:\Windows\Temp or a dm_tmp subfolder inside the REAPER
+-- resource directory as a last resort.
+-- Resolve a writable temp directory. Lua 5.3 on Windows uses ANSI file APIs, so
+-- paths containing non-ASCII characters (e.g. accented letters in the username)
+-- will silently fail with io.open. We probe each candidate with a real write test
+-- and fall back to C:\Windows\Temp or a dm_tmp subfolder inside the REAPER
+-- resource directory as a last resort.
+local function _resolve_tmp()
+    local function try(dir)
+        if type(dir) ~= "string" or #dir == 0 then return false end
+        dir = dir:gsub("/", "\\"):gsub("\\+$", "")
+        local probe = dir .. "\\dm_tk_write_probe.tmp"
+        local f = io.open(probe, "w")
+        if f then f:close(); os.remove(probe); return dir end
+        return false
+    end
+    return try(os.getenv("TEMP"))
+        or try(os.getenv("TMP"))
+        or try("C:\\Windows\\Temp")
+        or (function()
+               local fb = reaper.GetResourcePath():gsub("/", "\\") .. "\\dm_tmp"
+               reaper.RecursiveCreateDirectory(fb, 0)
+               return fb
+           end)()
+end
+local _tmp         = _resolve_tmp()
 local TMP_TXT      = _tmp .. "\\dm_tk_readme.txt"
 local TMP_DONE     = _tmp .. "\\dm_tk_readme.done"
 local TMP_BAT      = _tmp .. "\\dm_tk_fetch.ps1"
