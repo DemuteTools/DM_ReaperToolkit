@@ -8,18 +8,24 @@ local M = {}
 
 local _ctx
 
--- Resolve a writable temp directory. Lua 5.3 on Windows uses ANSI file APIs, so
--- paths containing non-ASCII characters (e.g. accented letters in the username)
--- will silently fail with io.open. We probe each candidate with both a .tmp and
--- a .ps1 file — AV software and AppLocker policies commonly block writing script
--- files (.ps1/.vbs) while allowing generic .tmp files, so testing only .tmp would
--- give a false positive. Falls back to C:\Windows\Temp or a dm_tmp subfolder.
+local IS_WIN = reaper.GetOS():find("^Win") ~= nil
+local SEP    = IS_WIN and "\\" or "/"
+local CURL   = IS_WIN and "curl.exe" or "curl"
+
+-- Resolve a writable temp directory.
+-- On Windows, Lua 5.3 uses ANSI file APIs so paths with non-ASCII characters
+-- (e.g. accented letters in the username) silently fail with io.open.
+-- We probe each candidate with both a .tmp and a script file (.ps1 on Windows,
+-- .sh on Mac) because AV software and AppLocker policies can block writing
+-- script files while allowing .tmp files.
 local function _resolve_tmp()
+    local script_ext = IS_WIN and ".ps1" or ".sh"
     local function try(dir)
         if type(dir) ~= "string" or #dir == 0 then return false end
-        dir = dir:gsub("/", "\\"):gsub("\\+$", "")
-        local p1 = dir .. "\\dm_tk_probe.tmp"
-        local p2 = dir .. "\\dm_tk_probe.ps1"
+        dir = IS_WIN and dir:gsub("/",  "\\"):gsub("\\+$", "")
+                     or  dir:gsub("\\", "/" ):gsub("/+$",  "")
+        local p1 = dir .. SEP .. "dm_tk_probe.tmp"
+        local p2 = dir .. SEP .. "dm_tk_probe" .. script_ext
         local f1 = io.open(p1, "w")
         local f2 = io.open(p2, "w")
         if f1 then f1:close(); os.remove(p1) end
@@ -27,33 +33,45 @@ local function _resolve_tmp()
         if f1 and f2 then return dir end
         return false
     end
-    return try(os.getenv("TEMP"))
-        or try(os.getenv("TMP"))
-        or try("C:\\Windows\\Temp")
-        or (function()
-               local fb = reaper.GetResourcePath():gsub("/", "\\") .. "\\dm_tmp"
-               reaper.RecursiveCreateDirectory(fb, 0)
-               return try(fb) or fb
-           end)()
+    if IS_WIN then
+        return try(os.getenv("TEMP"))
+            or try(os.getenv("TMP"))
+            or try("C:\\Windows\\Temp")
+            or (function()
+                   local fb = reaper.GetResourcePath():gsub("/", "\\") .. "\\dm_tmp"
+                   reaper.RecursiveCreateDirectory(fb, 0)
+                   return try(fb) or fb
+               end)()
+    else
+        return try(os.getenv("TMPDIR"))
+            or try("/tmp")
+            or (function()
+                   local fb = reaper.GetResourcePath():gsub("\\", "/") .. "/dm_tmp"
+                   reaper.RecursiveCreateDirectory(fb, 0)
+                   return try(fb) or fb
+               end)()
+    end
 end
-local _tmp         = _resolve_tmp()
-local TMP_TXT      = _tmp .. "\\dm_tk_readme.txt"
-local TMP_DONE     = _tmp .. "\\dm_tk_readme.done"
-local TMP_BAT      = _tmp .. "\\dm_tk_fetch.ps1"
-local TMP_IMG_BAT  = _tmp .. "\\dm_tk_imgfetch.ps1"
-local TMP_IMG_DONE = _tmp .. "\\dm_tk_imgfetch.done"
-local TMP_VBS      = _tmp .. "\\dm_tk_launcher.vbs"
-local TMP_IDX_DONE = _tmp .. "\\dm_tk_index.done"
-local TMP_IDX_BAT  = _tmp .. "\\dm_tk_indexfetch.ps1"
-local TMP_DESC_TXT  = _tmp .. "\\dm_tk_desc.txt"
-local TMP_DESC_DONE = _tmp .. "\\dm_tk_desc.done"
-local TMP_DESC_BAT  = _tmp .. "\\dm_tk_descfetch.ps1"
-local TMP_DOC_TXT   = _tmp .. "\\dm_tk_doc.txt"
-local TMP_DOC_DONE  = _tmp .. "\\dm_tk_doc.done"
-local TMP_DOC_BAT   = _tmp .. "\\dm_tk_docfetch.ps1"
-local TMP_PKG_TXT   = _tmp .. "\\dm_tk_packages.lua"
-local TMP_PKG_DONE  = _tmp .. "\\dm_tk_packages.done"
-local TMP_PKG_BAT   = _tmp .. "\\dm_tk_pkgfetch.ps1"
+
+local _tmp          = _resolve_tmp()
+local _script_ext   = IS_WIN and ".ps1" or ".sh"
+local TMP_TXT       = _tmp .. SEP .. "dm_tk_readme.txt"
+local TMP_DONE      = _tmp .. SEP .. "dm_tk_readme.done"
+local TMP_BAT       = _tmp .. SEP .. "dm_tk_fetch"      .. _script_ext
+local TMP_IMG_BAT   = _tmp .. SEP .. "dm_tk_imgfetch"   .. _script_ext
+local TMP_IMG_DONE  = _tmp .. SEP .. "dm_tk_imgfetch.done"
+local TMP_VBS       = _tmp .. SEP .. "dm_tk_launcher.vbs"   -- Windows only
+local TMP_IDX_DONE  = _tmp .. SEP .. "dm_tk_index.done"
+local TMP_IDX_BAT   = _tmp .. SEP .. "dm_tk_indexfetch" .. _script_ext
+local TMP_DESC_TXT  = _tmp .. SEP .. "dm_tk_desc.txt"
+local TMP_DESC_DONE = _tmp .. SEP .. "dm_tk_desc.done"
+local TMP_DESC_BAT  = _tmp .. SEP .. "dm_tk_descfetch"  .. _script_ext
+local TMP_DOC_TXT   = _tmp .. SEP .. "dm_tk_doc.txt"
+local TMP_DOC_DONE  = _tmp .. SEP .. "dm_tk_doc.done"
+local TMP_DOC_BAT   = _tmp .. SEP .. "dm_tk_docfetch"   .. _script_ext
+local TMP_PKG_TXT   = _tmp .. SEP .. "dm_tk_packages.lua"
+local TMP_PKG_DONE  = _tmp .. SEP .. "dm_tk_packages.done"
+local TMP_PKG_BAT   = _tmp .. SEP .. "dm_tk_pkgfetch"   .. _script_ext
 
 M.readme_cache = {}   -- key=github_url: string content or "Loading..."
 M.image_cache  = {}   -- key=url: { status, path, img }
@@ -77,21 +95,52 @@ local _index_last_check = 0
 local _desc_last_check  = 0
 local _doc_last_check   = 0
 
--- Launch a ps1 script as a hidden background process via wscript.exe (GUI subsystem = no console window).
-local function launch_bg(ps1_path)
-    local cmd = 'wscript.exe //B //NoLogo "' .. TMP_VBS .. '" "' .. ps1_path .. '"'
-    reaper.ExecProcess(cmd, -1)
+-- ── Script-writing helpers ────────────────────────────────────────────────────
+-- Write a shebang on Mac; nothing on Windows (PowerShell doesn't need one).
+local function w_header(f)
+    if not IS_WIN then f:write("#!/bin/bash\n") end
+end
+
+-- Write a curl download line.
+local function w_curl(f, url, out)
+    if IS_WIN then
+        f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', url, out))
+    else
+        f:write(string.format('curl -sSL4 "%s" -o "%s"\n', url, out))
+    end
+end
+
+-- Write a "create sentinel file" line.
+local function w_sentinel(f, path)
+    if IS_WIN then
+        f:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', path))
+    else
+        f:write(string.format('touch "%s"\n', path))
+    end
+end
+
+-- ── Background launcher ───────────────────────────────────────────────────────
+-- Windows: hidden PowerShell via wscript (no console flash).
+-- Mac: direct bash execution.
+local function launch_bg(script_path)
+    if IS_WIN then
+        reaper.ExecProcess('wscript.exe //B //NoLogo "' .. TMP_VBS .. '" "' .. script_path .. '"', -1)
+    else
+        reaper.ExecProcess('/bin/bash "' .. script_path .. '"', -1)
+    end
 end
 
 function M.Init(ctx)
     _ctx = ctx
-    -- Write the VBS shim that launches a PS1 silently (wscript is GUI subsystem, no console flash).
-    local f = io.open(TMP_VBS, "w")
-    if f then
-        f:write('Set sh = CreateObject("WScript.Shell")\r\n')
-        local ps = 'powershell -WindowStyle Hidden -NonInteractive -ExecutionPolicy Bypass -File'
-        f:write('sh.Run "' .. ps .. ' """ & WScript.Arguments(0) & """", 0, False\r\n')
-        f:close()
+    if IS_WIN then
+        -- Write the VBS shim that launches a PS1 silently (wscript is GUI subsystem, no console flash).
+        local f = io.open(TMP_VBS, "w")
+        if f then
+            f:write('Set sh = CreateObject("WScript.Shell")\r\n')
+            local ps = 'powershell -WindowStyle Hidden -NonInteractive -ExecutionPolicy Bypass -File'
+            f:write('sh.Run "' .. ps .. ' """ & WScript.Arguments(0) & """", 0, False\r\n')
+            f:close()
+        end
     end
 end
 
@@ -115,8 +164,9 @@ function M.StartReadmeFetch(pkg)
         M.readme_cache[key] = "Error: could not write temp script."
         return
     end
-    f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', url, TMP_TXT))
-    f:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', TMP_DONE))
+    w_header(f)
+    w_curl(f, url, TMP_TXT)
+    w_sentinel(f, TMP_DONE)
     f:close()
 
     launch_bg(TMP_BAT)
@@ -163,51 +213,66 @@ local function StartBatchImageFetch()
         return
     end
 
+    w_header(f)
+
     while #image_queue > 0 do
         local url = table.remove(image_queue, 1)
         if M.image_cache[url] and M.image_cache[url].status == "queued" then
-            local path = _tmp .. "\\dm_tk_img_" .. DM.String.HashURL(url) .. ".png"
-            M.image_cache[url] = { status = "downloading", path = path }
+            local path    = _tmp .. SEP .. "dm_tk_img_" .. DM.String.HashURL(url) .. ".png"
             local dl_path = path:gsub("%.png$", ".dl")
-            f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', url, dl_path))
-            -- If already PNG or JPEG just move; otherwise convert to PNG
-            -- via WPF/WIC (supports WebP natively on Windows 10/11).
-            f:write(string.format(
-                'if (Test-Path "%s") {\r\n'
-                .. '  $b = [byte[]](Get-Content "%s" -Encoding Byte -TotalCount 4)\r\n'
-                .. '  if (($b[0] -eq 0x89 -and $b[1] -eq 0x50) -or'
-                .. '      ($b[0] -eq 0xFF -and $b[1] -eq 0xD8)) {\r\n'
-                .. '    Move-Item -Force "%s" "%s"\r\n'
-                .. '  } else {\r\n'
-                .. '    try {\r\n'
-                .. '      Add-Type -AssemblyName PresentationCore\r\n'
-                .. '      $s = [System.IO.File]::OpenRead("%s")\r\n'
-                .. '      $dec = [System.Windows.Media.Imaging.BitmapDecoder]::Create('
-                .. '$s,'
-                .. '[System.Windows.Media.Imaging.BitmapCreateOptions]::None,'
-                .. '[System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad)\r\n'
-                .. '      $enc = New-Object System.Windows.Media.Imaging.PngBitmapEncoder\r\n'
-                .. '      $enc.Frames.Add('
-                .. '[System.Windows.Media.Imaging.BitmapFrame]::Create($dec.Frames[0]))\r\n'
-                .. '      $out = [System.IO.File]::Create("%s")\r\n'
-                .. '      $enc.Save($out)\r\n'
-                .. '      $out.Close(); $s.Close()\r\n'
-                .. '      Remove-Item -Force "%s"\r\n'
-                .. '    } catch { Move-Item -Force "%s" "%s" }\r\n'
-                .. '  }\r\n'
-                .. '}\r\n',
-                dl_path,       -- Test-Path
-                dl_path,       -- Get-Content header
-                dl_path, path, -- PNG/JPEG: move directly
-                dl_path,       -- OpenRead source
-                path,          -- Create PNG output
-                dl_path,       -- Remove temp
-                dl_path, path  -- catch fallback: move as-is
-            ))
+            M.image_cache[url] = { status = "downloading", path = path }
+
+            if IS_WIN then
+                f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', url, dl_path))
+                -- Detect PNG/JPEG by magic bytes; convert anything else (e.g. WebP) via WPF/WIC.
+                f:write(string.format(
+                    'if (Test-Path "%s") {\r\n'
+                    .. '  $b = [byte[]](Get-Content "%s" -Encoding Byte -TotalCount 4)\r\n'
+                    .. '  if (($b[0] -eq 0x89 -and $b[1] -eq 0x50) -or'
+                    .. '      ($b[0] -eq 0xFF -and $b[1] -eq 0xD8)) {\r\n'
+                    .. '    Move-Item -Force "%s" "%s"\r\n'
+                    .. '  } else {\r\n'
+                    .. '    try {\r\n'
+                    .. '      Add-Type -AssemblyName PresentationCore\r\n'
+                    .. '      $s = [System.IO.File]::OpenRead("%s")\r\n'
+                    .. '      $dec = [System.Windows.Media.Imaging.BitmapDecoder]::Create('
+                    .. '$s,'
+                    .. '[System.Windows.Media.Imaging.BitmapCreateOptions]::None,'
+                    .. '[System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad)\r\n'
+                    .. '      $enc = New-Object System.Windows.Media.Imaging.PngBitmapEncoder\r\n'
+                    .. '      $enc.Frames.Add('
+                    .. '[System.Windows.Media.Imaging.BitmapFrame]::Create($dec.Frames[0]))\r\n'
+                    .. '      $out = [System.IO.File]::Create("%s")\r\n'
+                    .. '      $enc.Save($out)\r\n'
+                    .. '      $out.Close(); $s.Close()\r\n'
+                    .. '      Remove-Item -Force "%s"\r\n'
+                    .. '    } catch { Move-Item -Force "%s" "%s" }\r\n'
+                    .. '  }\r\n'
+                    .. '}\r\n',
+                    dl_path, dl_path,
+                    dl_path, path,
+                    dl_path, path, dl_path,
+                    dl_path, path
+                ))
+            else
+                -- Mac: download then convert via sips (handles WebP, JPEG, etc. → PNG).
+                f:write(string.format('curl -sSL4 "%s" -o "%s"\n', url, dl_path))
+                f:write(string.format(
+                    'if [ -f "%s" ]; then\n'
+                    .. '  sips -s format png "%s" --out "%s" 2>/dev/null || mv -f "%s" "%s"\n'
+                    .. '  [ -f "%s" ] && rm -f "%s"\n'
+                    .. 'fi\n',
+                    dl_path,
+                    dl_path, path, dl_path, path,
+                    dl_path, dl_path
+                ))
+            end
+
             items[#items + 1] = { url = url, path = path }
         end
     end
-    f:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', TMP_IMG_DONE))
+
+    w_sentinel(f, TMP_IMG_DONE)
     f:close()
 
     launch_bg(TMP_IMG_BAT)
@@ -271,7 +336,7 @@ function M.CheckImageFetch()
     end
 end
 
--- Batched index fetch: all packages in one PowerShell process
+-- Batched index fetch: all packages in one background process
 local _idx_batch       = nil  -- array of {pkg, path} when batch is running
 local _idx_process_idx = 0    -- next item to process after batch completes
 local _idx_batch_done  = false
@@ -287,14 +352,15 @@ local function StartBatchIndexFetch()
         index_queue = {}
         return
     end
+    w_header(f)
     while #index_queue > 0 do
         local pkg = table.remove(index_queue, 1)
         M.index_cache[pkg.reapack_url] = "Loading..."
-        local path = _tmp .. "\\dm_tk_idx_" .. DM.String.HashURL(pkg.reapack_url) .. ".xml"
-        f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', pkg.reapack_url, path))
+        local path = _tmp .. SEP .. "dm_tk_idx_" .. DM.String.HashURL(pkg.reapack_url) .. ".xml"
+        w_curl(f, pkg.reapack_url, path)
         items[#items + 1] = { pkg = pkg, path = path }
     end
-    f:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', TMP_IDX_DONE))
+    w_sentinel(f, TMP_IDX_DONE)
     f:close()
     launch_bg(TMP_IDX_BAT)
     _idx_batch = items
@@ -417,8 +483,9 @@ local function StartNextDescFetch()
         StartNextDescFetch()
         return
     end
-    f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', url, TMP_DESC_TXT))
-    f:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', TMP_DESC_DONE))
+    w_header(f)
+    w_curl(f, url, TMP_DESC_TXT)
+    w_sentinel(f, TMP_DESC_DONE)
     f:close()
 
     launch_bg(TMP_DESC_BAT)
@@ -479,8 +546,9 @@ local function StartNextDocFetch()
         StartNextDocFetch()
         return
     end
-    f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', url, TMP_DOC_TXT))
-    f:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', TMP_DOC_DONE))
+    w_header(f)
+    w_curl(f, url, TMP_DOC_TXT)
+    w_sentinel(f, TMP_DOC_DONE)
     f:close()
 
     launch_bg(TMP_DOC_BAT)
@@ -548,8 +616,9 @@ function M.StartPackagesFetch(cache_path, on_update)
         M.packages_fetch_state = nil
         return
     end
-    f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', PACKAGES_URL, TMP_PKG_TXT))
-    f:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', TMP_PKG_DONE))
+    w_header(f)
+    w_curl(f, PACKAGES_URL, TMP_PKG_TXT)
+    w_sentinel(f, TMP_PKG_DONE)
     f:close()
 
     launch_bg(TMP_PKG_BAT)
