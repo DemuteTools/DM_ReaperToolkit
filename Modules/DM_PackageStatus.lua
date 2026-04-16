@@ -6,6 +6,9 @@
 
 local M = {}
 
+local IS_WIN = reaper.GetOS():find("^Win") ~= nil
+local SEP    = IS_WIN and "\\" or "/"
+
 local _Fetch
 
 local _resource_path     = nil
@@ -42,27 +45,30 @@ local function FileExists(path)
     return _file_exists_cache[path]
 end
 
+local function GetResourcePath()
+    if not _resource_path then
+        _resource_path = IS_WIN
+            and reaper.GetResourcePath():gsub("/",  "\\")
+            or  reaper.GetResourcePath():gsub("\\", "/")
+    end
+    return _resource_path
+end
+
 local function GetScriptPath(pkg)
     -- Drive package: path is computed directly, no index needed
     if type(pkg.drive_url) == "string" and pkg.reapack_url == "None" then
         if not pkg.main_script then return nil end
-        if not _resource_path then
-            _resource_path = reaper.GetResourcePath():gsub("/", "\\")
-        end
-        return _resource_path .. "\\Scripts\\Demute_toolkit\\pythonScripts\\" .. pkg.main_script
+        return GetResourcePath() .. SEP .. "Scripts" .. SEP .. "Demute_toolkit" .. SEP .. "pythonScripts" .. SEP .. pkg.main_script
     end
 
     local idx = _Fetch.index_cache[pkg.reapack_url]
     if type(idx) ~= "table" or idx.error then return nil end
-    if not _resource_path then
-        _resource_path = reaper.GetResourcePath():gsub("/", "\\")
-    end
-    -- ReaPack installs to: Scripts\{index_name}\{category}\{script_name}
+    -- ReaPack installs to: Scripts/{index_name}/{category}/{script_name}
     local script_name = pkg.main_script or idx.name
     local category    = (idx.scripts and idx.scripts[script_name]) or idx.category
-    return _resource_path .. "\\Scripts\\"
-        .. idx.index_name:gsub("/", "\\") .. "\\"
-        .. category:gsub("/", "\\")       .. "\\"
+    return GetResourcePath() .. SEP .. "Scripts" .. SEP
+        .. idx.index_name:gsub("[/\\]", SEP) .. SEP
+        .. category:gsub("[/\\]", SEP)       .. SEP
         .. script_name
 end
 
@@ -96,14 +102,10 @@ function M.GetCachedVersion(pkg)
     if _cached_versions[key] ~= nil then
         return _cached_versions[key] or nil
     end
-    if not _resource_path then
-        _resource_path = reaper.GetResourcePath():gsub("/", "\\")
-    end
-
     local esc = script_name:gsub("([%.%+%-%*%?%[%]%^%$%(%)%%])", "%%%1")
 
     -- 1. Our cache folder (populated by DM_DirectInstaller)
-    local cash_path = _resource_path .. "\\Scripts\\DM_ReaperToolkit\\cache\\" .. idx.index_name .. ".xml"
+    local cash_path = GetResourcePath() .. SEP .. "Scripts" .. SEP .. "DM_ReaperToolkit" .. SEP .. "cache" .. SEP .. idx.index_name .. ".xml"
     local cf = io.open(cash_path, "r")
     if cf then
         local cash_xml = cf:read("*a")
@@ -122,7 +124,7 @@ function M.GetCachedVersion(pkg)
     end
 
     -- 2. ReaPack's local cache (fallback for ReaPack-managed installs)
-    local cache_path = _resource_path .. "\\ReaPack\\cache\\" .. idx.index_name .. ".xml"
+    local cache_path = GetResourcePath() .. SEP .. "ReaPack" .. SEP .. "cache" .. SEP .. idx.index_name .. ".xml"
     local f = io.open(cache_path, "r")
     if not f then
         _cached_versions[key] = false
