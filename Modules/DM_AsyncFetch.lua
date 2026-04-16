@@ -255,16 +255,25 @@ local function StartBatchImageFetch()
                     dl_path, path
                 ))
             else
-                -- Mac: download then convert via sips (handles WebP, JPEG, etc. → PNG).
+                -- Mac: download then convert to PNG via sips.
+                -- sips is built-in on macOS and handles WebP, JPEG, GIF, etc.
+                -- We check if sips actually produced a valid output file before
+                -- falling back to a raw move (which might leave a non-PNG at the path).
                 f:write(string.format('curl -sSL4 "%s" -o "%s"\n', url, dl_path))
                 f:write(string.format(
                     'if [ -f "%s" ]; then\n'
-                    .. '  sips -s format png "%s" --out "%s" 2>/dev/null || mv -f "%s" "%s"\n'
-                    .. '  [ -f "%s" ] && rm -f "%s"\n'
+                    .. '  sips -s format png "%s" --out "%s" >/dev/null 2>&1\n'
+                    .. '  if [ ! -s "%s" ]; then\n'   -- sips failed or produced empty file
+                    .. '    mv -f "%s" "%s"\n'         -- fall back: move as-is (may be unusable)
+                    .. '  else\n'
+                    .. '    rm -f "%s"\n'              -- clean up the .dl file
+                    .. '  fi\n'
                     .. 'fi\n',
                     dl_path,
-                    dl_path, path, dl_path, path,
-                    dl_path, dl_path
+                    dl_path, path,
+                    path,
+                    dl_path, path,
+                    dl_path
                 ))
             end
 
@@ -319,20 +328,32 @@ function M.CheckImageFetch()
     local item = active_imgs[_img_process_idx]
     _img_process_idx = _img_process_idx + 1
     local url, path = item.url, item.path
-    local f_png = io.open(path, "rb")
-    local png_exists = f_png ~= nil
-    if f_png then f_png:close() end
-    if not png_exists then
+
+    -- Read the first 4 bytes to verify PNG or JPEG magic before passing to ImGui_CreateImage.
+    -- ImGui_CreateImage on Mac prints an error directly to the REAPER console (bypassing pcall)
+    -- when it receives an unsupported format, so we must gate it ourselves.
+    local fh = io.open(path, "rb")
+    if not fh then
         M.image_cache[url] = { status = "error" }
+        return
+    end
+    local magic = fh:read(4) or ""
+    fh:close()
+    local is_png  = magic:sub(1,4) == "\x89PNG"
+    local is_jpeg = magic:sub(1,3) == "\xFF\xD8\xFF"
+    if not is_png and not is_jpeg then
+        os.remove(path)   -- discard unreadable file so it doesn't linger
+        M.image_cache[url] = { status = "error" }
+        return
+    end
+
+    local iw, ih = DM.Image.GetImageSize(path)
+    local ok, img = pcall(reaper.ImGui_CreateImage, path)
+    if ok and img then
+        reaper.ImGui_Attach(_ctx, img)
+        M.image_cache[url] = { status = "ready", img = img, path = path, w = iw, h = ih }
     else
-        local iw, ih = DM.Image.GetImageSize(path)
-        local ok, img = pcall(reaper.ImGui_CreateImage, path)
-        if ok and img then
-            reaper.ImGui_Attach(_ctx, img)
-            M.image_cache[url] = { status = "ready", img = img, path = path, w = iw, h = ih }
-        else
-            M.image_cache[url] = { status = "error" }
-        end
+        M.image_cache[url] = { status = "error" }
     end
 end
 
