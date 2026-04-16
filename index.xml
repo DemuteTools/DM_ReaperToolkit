@@ -2,8 +2,8 @@
 <index version="1" name="Demute_toolkit">
   <category name="DM_ReaperToolkit">
     <reapack name="DM_ReaperToolkit.lua" type="script">
-      <version name="0.1.1-beta" author="Demute">
-        <changelog>Fix temp file writes failing on systems with non-ASCII usernames or AV software blocking .ps1 creation. Fix Auto Voice Lines README showing raw HTML.</changelog>
+      <version name="0.1.2-beta" author="Demute">
+        <changelog>Add full macOS support: cross-platform temp directory resolution, bash scripts instead of PowerShell, sips-based image conversion, and correct path separators for install detection and the Run button.</changelog>
         <source main="main">https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/DM_ReaperToolkit.lua</source>
         <source file="Modules/DM_DirectInstaller.lua">https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Modules/DM_DirectInstaller.lua</source>
         <source file="Modules/DM_AsyncFetch.lua">https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Modules/DM_AsyncFetch.lua</source>

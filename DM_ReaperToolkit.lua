@@ -1,6 +1,6 @@
 --[[
 @description DM_ReaperToolkit
-@version 0.1.1-beta
+@version 0.1.2-beta
 @about
     The Demute Reaper Toolkit is an package containing a collection of Reaper tools that we use at Demute. Most of these tools solve common challenges we faced while using Reaper and to improve our workflow.
 @author Florian Heynen
