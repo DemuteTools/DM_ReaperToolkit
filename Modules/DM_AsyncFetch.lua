@@ -10,21 +10,21 @@ local _ctx
 
 -- Resolve a writable temp directory. Lua 5.3 on Windows uses ANSI file APIs, so
 -- paths containing non-ASCII characters (e.g. accented letters in the username)
--- will silently fail with io.open. We probe each candidate with a real write test
--- and fall back to C:\Windows\Temp or a dm_tmp subfolder inside the REAPER
--- resource directory as a last resort.
--- Resolve a writable temp directory. Lua 5.3 on Windows uses ANSI file APIs, so
--- paths containing non-ASCII characters (e.g. accented letters in the username)
--- will silently fail with io.open. We probe each candidate with a real write test
--- and fall back to C:\Windows\Temp or a dm_tmp subfolder inside the REAPER
--- resource directory as a last resort.
+-- will silently fail with io.open. We probe each candidate with both a .tmp and
+-- a .ps1 file — AV software and AppLocker policies commonly block writing script
+-- files (.ps1/.vbs) while allowing generic .tmp files, so testing only .tmp would
+-- give a false positive. Falls back to C:\Windows\Temp or a dm_tmp subfolder.
 local function _resolve_tmp()
     local function try(dir)
         if type(dir) ~= "string" or #dir == 0 then return false end
         dir = dir:gsub("/", "\\"):gsub("\\+$", "")
-        local probe = dir .. "\\dm_tk_write_probe.tmp"
-        local f = io.open(probe, "w")
-        if f then f:close(); os.remove(probe); return dir end
+        local p1 = dir .. "\\dm_tk_probe.tmp"
+        local p2 = dir .. "\\dm_tk_probe.ps1"
+        local f1 = io.open(p1, "w")
+        local f2 = io.open(p2, "w")
+        if f1 then f1:close(); os.remove(p1) end
+        if f2 then f2:close(); os.remove(p2) end
+        if f1 and f2 then return dir end
         return false
     end
     return try(os.getenv("TEMP"))
@@ -33,7 +33,7 @@ local function _resolve_tmp()
         or (function()
                local fb = reaper.GetResourcePath():gsub("/", "\\") .. "\\dm_tmp"
                reaper.RecursiveCreateDirectory(fb, 0)
-               return fb
+               return try(fb) or fb
            end)()
 end
 local _tmp         = _resolve_tmp()
