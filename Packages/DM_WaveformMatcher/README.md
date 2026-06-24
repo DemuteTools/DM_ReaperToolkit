@@ -9,7 +9,7 @@ Reapack
 1. Download and install Reapack for your platform here(also the user Guide): [Reapack Download](https://reapack.com/user-guide#installation)
 2. go to Extensions->Reapack->Import Repositories paste the following link:
 
---> https://raw.githubusercontent.com/DemuteStudio/Waveform-Matcher/main/index.xml
+--> https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/DM_WaveformMatcher/index.xml
 
 Manual:
 1. Download or clone the repository.
