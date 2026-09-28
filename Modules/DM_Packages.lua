@@ -70,7 +70,6 @@ return {
         name        = "ReaAnimViewer",
         reapack_url = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/refs/heads/main/index.xml",
         github_url  = "https://github.com/DemuteTools/ReaAnimViewer",
-        readme_url  = "https://raw.githubusercontent.com/DemuteTools/DM_ReaperToolkit/main/Packages/ReaAnimViewer/README.md",
         Website_url = "None",
         youtube_url = "None",
         main_script = "RAV_Launcher.lua",
