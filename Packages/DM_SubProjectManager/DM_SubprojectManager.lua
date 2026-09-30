@@ -418,7 +418,8 @@ local function RenameSubproject(sp, new_name)
     if sp.path == "" then return false, "No file path — cannot rename." end
 
     local dir      = sp.path:match("^(.*)[/\\]") or "."
-    local new_path = dir .. "\\" .. new_name .. ".rpp"
+    local sep      = string.find(reaper.GetOS(), "Win") and "\\" or "/"
+    local new_path = dir .. sep .. new_name .. ".rpp"
 
     local existing = io.open(new_path, "rb")
     if existing then existing:close()
