@@ -71,6 +71,18 @@ local _res = IS_WIN
     and reaper.GetResourcePath():gsub("/",  "\\")
     or  reaper.GetResourcePath():gsub("\\", "/")
 
+-- Remove DLLs renamed by a previous uninstall (they were still loaded then)
+do
+    local dir, stale, i = _res .. SEP .. "UserPlugins", {}, 0
+    while true do
+        local fn = reaper.EnumerateFiles(dir, i)
+        if not fn then break end
+        if fn:match("%.dm_old$") then stale[#stale + 1] = fn end
+        i = i + 1
+    end
+    for _, fn in ipairs(stale) do os.remove(dir .. SEP .. fn) end
+end
+
 local _script_ext  = IS_WIN and ".ps1" or ".sh"
 local _vbs         = _tmp .. SEP .. "dm_inst_launcher.vbs"   -- Windows only
 local TMP_IDX_TXT  = _tmp .. SEP .. "dm_inst_index.txt"
@@ -274,6 +286,7 @@ local function ParseIndex(xml)
             elseif tag_name == 'source' and cur_ver_idx and cur_rp_name and cur_cat then
                 local file_attr = tag:match('file="([^"]*)"')
                 local main_val  = tag:match('main="([^"]*)"')
+                local src_type  = tag:match('type="([^"]*)"') or cur_rp_type
                 local is_main   = main_val ~= nil and main_val ~= ""
 
                 local url_s, url_e = xml:find('</source>', pos, true)
@@ -284,8 +297,10 @@ local function ParseIndex(xml)
                     -- Normalise relative path to the platform separator
                     local rel = (file_attr or cur_rp_name):gsub('[/\\]', SEP)
                     local dest
-                    if cur_rp_type == 'data' then
+                    if src_type == 'data' then
                         dest = _res .. SEP .. rel
+                    elseif src_type == 'extension' then
+                        dest = _res .. SEP .. 'UserPlugins' .. SEP .. rel
                     elseif cur_cat ~= "" then
                         dest = _res .. SEP .. 'Scripts' .. SEP .. index_name .. SEP
                             .. cur_cat:gsub('[/\\]', SEP) .. SEP .. rel
@@ -296,8 +311,9 @@ local function ParseIndex(xml)
                     src_list[#src_list + 1] = {
                         url     = url,
                         dest    = dest,
-                        is_main = is_main and (cur_rp_type == 'script'),
+                        is_main = is_main and (src_type == 'script'),
                         name    = cur_rp_name,
+                        restart = (src_type == 'extension'),
                     }
                 end
             end
@@ -533,8 +549,19 @@ function M.Tick()
         os.remove(TMP_DL_CFG)
 
         local registered = 0
+        local restart = false
+        local names, seen = {}, {}
         for _, entry in ipairs(_files) do
             M.log[#M.log + 1] = entry.dest
+            if entry.restart then
+                restart = true
+                local plugin = entry.dest:match("[^/\\]+$")
+                if not seen[entry.name] then
+                    seen[entry.name] = true
+                    names[#names + 1] = plugin
+                end
+            end
+
             if entry.is_main then
                 local cmd_id = reaper.AddRemoveReaScript(true, 0, entry.dest, true)
                 if cmd_id and cmd_id ~= 0 then
@@ -546,8 +573,12 @@ function M.Tick()
         end
 
         M.state   = "done"
-        M.message = string.format(
-            "Done. %d file(s) installed, %d action(s) registered.", #_files, registered)
+        M.message = string.format("Done. %d file(s) installed, %d action(s) registered.", #_files, registered)
+        if restart then
+            local list = table.concat(names, ", ")
+            M.message = M.message .. " Restart REAPER to load " .. list.. "."
+            reaper.MB(list .. " was installed.\n\nRestart REAPER before it can work.", "Restart REAPER", 0)
+        end
         M.results[_pkg_key] = { state = "done", message = M.message }
         M.active_url = nil
     end
@@ -603,14 +634,21 @@ function M.StartUninstall(pkg, index_name)
 
     local removed = 0
     local unreg   = 0
+    local restart = false
     local dirs_seen = {}
     for _, entry in ipairs(files) do
         if entry.is_main then
             reaper.AddRemoveReaScript(false, 0, entry.dest, true)
             unreg = unreg + 1
         end
-        if os.remove(entry.dest) then
+        local ok = os.remove(entry.dest)
+        if not ok and entry.restart then
+            -- Loaded DLL can't be deleted, but it can be renamed
+            ok = os.rename(entry.dest, entry.dest .. ".dm_old")
+        end
+        if ok then
             removed = removed + 1
+            if entry.restart then restart = true end
             local dir = entry.dest:match(dir_sep_pat)
             if dir then dirs_seen[dir] = true end
         end
@@ -619,10 +657,13 @@ function M.StartUninstall(pkg, index_name)
 
     RemoveEmptyDirsAsync(CollectEmptyDirs(dirs_seen, _res .. SEP .. "Scripts"))
 
-    M.results[pkg_key] = {
-        state   = "done",
-        message = string.format("Uninstalled. %d file(s) removed, %d action(s) unregistered.", removed, unreg),
-    }
+    local msg = string.format("Uninstalled. %d file(s) removed, %d action(s) unregistered.", removed, unreg)
+    if restart then
+        msg = msg .. " Restart REAPER to finish unloading the plugin."
+        reaper.MB("The plugin was uninstalled.\n\nRestart REAPER to finish unloading it.", "Restart REAPER", 0)
+    end
+
+    M.results[pkg_key] = { state = "done", message = msg }
 end
 
 -- Reset to idle so the user can retry or install a different package.
