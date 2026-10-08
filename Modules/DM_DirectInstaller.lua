@@ -19,11 +19,36 @@ M.results    = {}       -- keyed by pkg.reapack_url: { state="done"|"error", mes
 M.active_url = nil      -- reapack_url of the package currently being installed, or nil
 
 -- ── Platform detection ────────────────────────────────────────────────────────
-local IS_WIN = reaper.GetOS():find("^Win") ~= nil
+local OS     = reaper.GetOS()
+local IS_WIN = OS:find("^Win") ~= nil
 local SEP    = IS_WIN and "\\" or "/"
 local CURL   = IS_WIN and "curl.exe" or "curl"
 
+-- Does a ReaPack platform="" attribute match the running system?
+local function PlatformMatches(p)
+    if not p or p == "" or p == "all" then return true end
+    if OS == "Win64"         then return p == "windows" or p == "win64" end
+    if OS == "Win32"         then return p == "windows" or p == "win32" end
+    if OS == "macOS-arm64"   then return p == "darwin"  or p == "darwin-arm64" end
+    if OS == "OSX64"         then return p == "darwin"  or p == "darwin64" end
+    if OS == "OSX32"         then return p == "darwin"  or p == "darwin32" end
+    if OS:match("^linux") then
+        if p == "linux" then return true end
+        if OS:match("x86_64")  then return p == "linux64" end
+        if OS:match("i686")    then return p == "linux32" end
+        if OS:match("aarch64") then return p == "linux-aarch64" end
+        if OS:match("armv7l")  then return p == "linux-armv7l" end
+    end
+    return false
+end
+
 -- ── Internals ─────────────────────────────────────────────────────────────────
+
+local function FileExists(path)
+    local f = io.open(path, "rb")
+    if f then f:close(); return true end
+    return false
+end
 
 -- Resolve a writable temp directory.
 -- On Windows, Lua 5.3 uses ANSI file APIs so paths with non-ASCII characters
@@ -71,16 +96,33 @@ local _res = IS_WIN
     and reaper.GetResourcePath():gsub("/",  "\\")
     or  reaper.GetResourcePath():gsub("\\", "/")
 
--- Remove DLLs renamed by a previous uninstall (they were still loaded then)
+-- Remove plugin files moved aside by a previous update/uninstall (they were
+-- still loaded then). Matches both "x.dll.dm_old" and fallback "x.dll.dm_old<n>".
+-- Files that are still loaded simply fail to delete and are retried next time.
 do
-    local dir, stale, i = _res .. SEP .. "UserPlugins", {}, 0
-    while true do
-        local fn = reaper.EnumerateFiles(dir, i)
-        if not fn then break end
-        if fn:match("%.dm_old$") then stale[#stale + 1] = fn end
-        i = i + 1
+    local base = _res .. SEP .. "UserPlugins"
+    for _, dir in ipairs({ base, base .. SEP .. "FX" }) do
+        local stale, i = {}, 0
+        while true do
+            local fn = reaper.EnumerateFiles(dir, i)
+            if not fn then break end
+            if fn:match("%.dm_old%d*$") then stale[#stale + 1] = fn end
+            i = i + 1
+        end
+        for _, fn in ipairs(stale) do os.remove(dir .. SEP .. fn) end
     end
-    for _, fn in ipairs(stale) do os.remove(dir .. SEP .. fn) end
+end
+
+-- Move a (possibly loaded) plugin file out of the way so a new one can be written.
+-- Windows can't overwrite or delete a loaded DLL, but it can rename it.
+-- Returns the backup path, or nil if the file couldn't be moved.
+local function MoveAside(path)
+    local old = path .. ".dm_old"
+    os.remove(old)                              -- fails harmlessly if still loaded
+    if os.rename(path, old) then return old end
+    old = path .. ".dm_old" .. os.time()        -- previous backup still locked
+    if os.rename(path, old) then return old end
+    return nil
 end
 
 local _script_ext  = IS_WIN and ".ps1" or ".sh"
@@ -94,7 +136,7 @@ local TMP_DL_CFG   = _tmp .. SEP .. "dm_inst_download.cfg"   -- curl parallel co
 
 local POLL        = 0.05  -- seconds between sentinel checks
 local _last_check = 0
-local _files      = nil   -- [{url, dest, is_main, name}] after index parse
+local _files      = nil   -- [{url, dest, is_main, name, restart, old}] after index parse
 local _pkg_key    = nil   -- M.results / M.active_url key for current install
 
 -- ── Script-writing helpers ────────────────────────────────────────────────────
@@ -102,11 +144,30 @@ local function w_header(f)
     if not IS_WIN then f:write("#!/bin/bash\n") end
 end
 
+-- Empty sentinel file (used for the index fetch)
 local function w_sentinel(f, path)
     if IS_WIN then
         f:write(string.format('New-Item -Path "%s" -ItemType File -Force | Out-Null\r\n', path))
     else
         f:write(string.format('touch "%s"\n', path))
+    end
+end
+
+-- Capture curl's exit code. Must be written directly after the curl line.
+local function w_capture_rc(f)
+    if IS_WIN then
+        f:write('$rc = $LASTEXITCODE\r\n')
+    else
+        f:write('rc=$?\n')
+    end
+end
+
+-- Sentinel file containing the captured exit code (used for downloads)
+local function w_sentinel_rc(f, path)
+    if IS_WIN then
+        f:write(string.format('Set-Content -Path "%s" -Value $rc\r\n', path))
+    else
+        f:write(string.format('echo $rc > "%s"\n', path))
     end
 end
 
@@ -143,6 +204,14 @@ local function LaunchBg(script_path)
     else
         reaper.ExecProcess('/bin/bash "' .. script_path .. '"', -1)
     end
+end
+
+-- Put the current install into the error state.
+local function SetError(msg)
+    M.state   = "error"
+    M.message = msg
+    if _pkg_key then M.results[_pkg_key] = { state = "error", message = msg } end
+    M.active_url = nil
 end
 
 -- Collect empty directories walking up from each dir in the set, stopping before stop_path.
@@ -219,9 +288,10 @@ local PYTHON_DEPS = {
 
 -- ── Index XML parser ──────────────────────────────────────────────────────────
 -- Returns: index_name (string), files (table) or nil, err_msg
--- files[i] = { url, dest, is_main, name }
+-- files[i] = { url, dest, is_main, name, restart }
 -- Collects ALL version blocks per reapack, then picks the highest version number,
 -- so the correct version is installed regardless of the ordering in the XML.
+-- Sources whose platform="" doesn't match this system are skipped.
 local function ParseIndex(xml)
     local index_name = xml:match('<index[^>]+name="([^"]*)"')
     if not index_name then return nil, "Could not find index name" end
@@ -287,13 +357,14 @@ local function ParseIndex(xml)
                 local file_attr = tag:match('file="([^"]*)"')
                 local main_val  = tag:match('main="([^"]*)"')
                 local src_type  = tag:match('type="([^"]*)"') or cur_rp_type
+                local platform  = tag:match('platform="([^"]*)"')
                 local is_main   = main_val ~= nil and main_val ~= ""
 
                 local url_s, url_e = xml:find('</source>', pos, true)
                 local url = url_s and xml:sub(pos, url_s - 1):match('^%s*(.-)%s*$') or ""
                 if url_s then pos = url_e + 1 end
 
-                if url ~= "" then
+                if url ~= "" and PlatformMatches(platform) then
                     -- Normalise relative path to the platform separator
                     local rel = (file_attr or cur_rp_name):gsub('[/\\]', SEP)
                     local dest
@@ -339,19 +410,13 @@ function M.StartInstall(pkg)
         M.active_url = _pkg_key
 
         if not pkg.main_script then
-            M.state   = "error"
-            M.message = "drive_url package is missing main_script field."
-            M.results[_pkg_key] = { state = "error", message = M.message }
-            M.active_url = nil
+            SetError("drive_url package is missing main_script field.")
             return
         end
 
         local file_id = pkg.drive_url:match('/file/d/([^/?#]+)')
         if not file_id then
-            M.state   = "error"
-            M.message = "Could not extract file ID from drive_url."
-            M.results[_pkg_key] = { state = "error", message = M.message }
-            M.active_url = nil
+            SetError("Could not extract file ID from drive_url.")
             return
         end
 
@@ -376,10 +441,7 @@ function M.StartInstall(pkg)
         os.remove(TMP_DL_DONE)
         local cf = io.open(TMP_DL_CFG, "w")
         if not cf then
-            M.state   = "error"
-            M.message = "Could not write curl config file."
-            M.results[_pkg_key] = { state = "error", message = M.message }
-            M.active_url = nil
+            SetError("Could not write curl config file.")
             return
         end
         for _, entry in ipairs(_files) do
@@ -390,20 +452,18 @@ function M.StartInstall(pkg)
 
         local df = io.open(TMP_DL_SCR, "w")
         if not df then
-            M.state   = "error"
-            M.message = "Could not write download script."
-            M.results[_pkg_key] = { state = "error", message = M.message }
-            M.active_url = nil
+            SetError("Could not write download script.")
             return
         end
         w_header(df)
         w_mkdir(df, dir)
         df:write(string.format(
-            IS_WIN and 'curl.exe --parallel --parallel-immediate -SL4 -K "%s"\r\n'
-                    or 'curl --parallel --parallel-immediate -SL4 -K "%s"\n',
+            IS_WIN and 'curl.exe --parallel --parallel-immediate -fSL4 -K "%s"\r\n'
+                    or 'curl --parallel --parallel-immediate -fSL4 -K "%s"\n',
             TMP_DL_CFG))
+        w_capture_rc(df)
         w_remove(df, TMP_DL_CFG)
-        w_sentinel(df, TMP_DL_DONE)
+        w_sentinel_rc(df, TMP_DL_DONE)
         df:close()
 
         LaunchBg(TMP_DL_SCR)
@@ -422,17 +482,14 @@ function M.StartInstall(pkg)
 
     local f = io.open(TMP_IDX_SCR, "w")
     if not f then
-        M.state   = "error"
-        M.message = "Could not write temp script."
-        M.results[_pkg_key] = { state = "error", message = M.message }
-        M.active_url = nil
+        SetError("Could not write temp script.")
         return
     end
     w_header(f)
     if IS_WIN then
-        f:write(string.format('curl.exe -sSL4 "%s" -o "%s"\r\n', pkg.reapack_url, TMP_IDX_TXT))
+        f:write(string.format('curl.exe -fsSL4 "%s" -o "%s"\r\n', pkg.reapack_url, TMP_IDX_TXT))
     else
-        f:write(string.format('curl -sSL4 "%s" -o "%s"\n', pkg.reapack_url, TMP_IDX_TXT))
+        f:write(string.format('curl -fsSL4 "%s" -o "%s"\n', pkg.reapack_url, TMP_IDX_TXT))
     end
     w_sentinel(f, TMP_IDX_DONE)
     f:close()
@@ -466,19 +523,13 @@ function M.Tick()
         os.remove(TMP_IDX_SCR)
 
         if xml == "" then
-            M.state   = "error"
-            M.message = "Failed to download index XML (no content)."
-            M.results[_pkg_key] = { state = "error", message = M.message }
-            M.active_url = nil
+            SetError("Failed to download index XML (no content).")
             return
         end
 
         local idx_name, files = ParseIndex(xml)
         if not idx_name then
-            M.state   = "error"
-            M.message = "Failed to parse index XML: " .. (files or "unknown error")
-            M.results[_pkg_key] = { state = "error", message = M.message }
-            M.active_url = nil
+            SetError("Failed to parse index XML: " .. (files or "unknown error"))
             return
         end
 
@@ -492,12 +543,10 @@ function M.Tick()
         if wf then wf:write(xml); wf:close() end
 
         -- Write curl config file (forward slashes work on both platforms for curl)
+        os.remove(TMP_DL_DONE)
         local cf = io.open(TMP_DL_CFG, "w")
         if not cf then
-            M.state   = "error"
-            M.message = "Could not write curl config file."
-            M.results[_pkg_key] = { state = "error", message = M.message }
-            M.active_url = nil
+            SetError("Could not write curl config file.")
             return
         end
         for _, entry in ipairs(_files) do
@@ -507,13 +556,9 @@ function M.Tick()
         cf:close()
 
         -- Build download script: deduplicated mkdirs + single parallel curl call + sentinel
-        os.remove(TMP_DL_DONE)
         local df = io.open(TMP_DL_SCR, "w")
         if not df then
-            M.state   = "error"
-            M.message = "Could not write download script."
-            M.results[_pkg_key] = { state = "error", message = M.message }
-            M.active_url = nil
+            SetError("Could not write download script.")
             return
         end
         w_header(df)
@@ -526,12 +571,23 @@ function M.Tick()
             end
         end
         df:write(string.format(
-            IS_WIN and 'curl.exe --parallel --parallel-immediate -sSL4 -K "%s"\r\n'
-                    or 'curl --parallel --parallel-immediate -sSL4 -K "%s"\n',
+            IS_WIN and 'curl.exe --parallel --parallel-immediate -fsSL4 -K "%s"\r\n'
+                    or 'curl --parallel --parallel-immediate -fsSL4 -K "%s"\n',
             TMP_DL_CFG))
+        w_capture_rc(df)
         w_remove(df, TMP_DL_CFG)
-        w_sentinel(df, TMP_DL_DONE)
+        w_sentinel_rc(df, TMP_DL_DONE)
         df:close()
+
+        -- Move existing plugin files aside so curl can write the new ones.
+        -- Done last, right before launching, so no early error can leave them renamed.
+        -- If a move fails and the file is locked, curl fails and phase 2 reports it.
+        for _, entry in ipairs(_files) do
+            entry.old = nil
+            if entry.restart and FileExists(entry.dest) then
+                entry.old = MoveAside(entry.dest)
+            end
+        end
 
         LaunchBg(TMP_DL_SCR)
         M.state     = "downloading"
@@ -542,11 +598,36 @@ function M.Tick()
     elseif M.state == "downloading" then
         local done = io.open(TMP_DL_DONE, "r")
         if not done then return end
+        local code = tonumber((done:read("*a") or ""):match("%d+")) or -1
         done:close()
 
         os.remove(TMP_DL_DONE)
         os.remove(TMP_DL_SCR)
         os.remove(TMP_DL_CFG)
+
+        -- Put the previous plugin files back and enter the error state
+        local function fail(msg)
+            for _, e in ipairs(_files) do
+                if e.old and FileExists(e.old) then
+                    os.remove(e.dest)
+                    os.rename(e.old, e.dest)
+                    e.old = nil
+                end
+            end
+            SetError(msg)
+        end
+
+        if code ~= 0 then
+            fail("Download failed (curl exit code " .. code .. ").")
+            return
+        end
+
+        for _, entry in ipairs(_files) do
+            if not FileExists(entry.dest) then
+                fail("Download failed: " .. entry.dest:match("[^/\\]+$"))
+                return
+            end
+        end
 
         local registered = 0
         local restart = false
@@ -556,8 +637,8 @@ function M.Tick()
             if entry.restart then
                 restart = true
                 local plugin = entry.dest:match("[^/\\]+$")
-                if not seen[entry.name] then
-                    seen[entry.name] = true
+                if not seen[plugin] then
+                    seen[plugin] = true
                     names[#names + 1] = plugin
                 end
             end
@@ -576,8 +657,10 @@ function M.Tick()
         M.message = string.format("Done. %d file(s) installed, %d action(s) registered.", #_files, registered)
         if restart then
             local list = table.concat(names, ", ")
-            M.message = M.message .. " Restart REAPER to load " .. list.. "."
-            reaper.MB(list .. " was installed.\n\nRestart REAPER before it can work.", "Restart REAPER", 0)
+            local verb = #names > 1 and "were" or "was"
+            M.message = M.message .. " Restart REAPER to load " .. list .. "."
+            reaper.MB(list .. " " .. verb .. " installed.\n\nRestart REAPER before it can work.",
+                "Restart REAPER", 0)
         end
         M.results[_pkg_key] = { state = "done", message = M.message }
         M.active_url = nil
@@ -642,9 +725,9 @@ function M.StartUninstall(pkg, index_name)
             unreg = unreg + 1
         end
         local ok = os.remove(entry.dest)
-        if not ok and entry.restart then
-            -- Loaded DLL can't be deleted, but it can be renamed
-            ok = os.rename(entry.dest, entry.dest .. ".dm_old")
+        if not ok and entry.restart and FileExists(entry.dest) then
+            -- Loaded DLL can't be deleted, but it can be renamed (cleaned up next load)
+            ok = MoveAside(entry.dest) ~= nil
         end
         if ok then
             removed = removed + 1
